@@ -1,0 +1,23 @@
+# ── API ───────────────────────────────────────────────────────────────────────
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+authlib==1.3.0
+httpx==0.27.0
+itsdangerous==2.2.0
+python-multipart==0.0.9
+pyyaml==6.0.1
+aiofiles==23.2.1
+python-jose[cryptography]==3.3.0
+starlette==0.37.2
+
+# ── Worker ────────────────────────────────────────────────────────────────────
+google-genai>=0.3.0,<1.0
+ebooklib==0.18.0
+Pillow==10.1.0
+opencv-python-headless==4.9.0.80
+numpy>=1.26,<2.0
+
+# ── Shared ────────────────────────────────────────────────────────────────────
+PyMuPDF==1.23.8
+redis==5.0.4
+fakeredis>=2.20.0

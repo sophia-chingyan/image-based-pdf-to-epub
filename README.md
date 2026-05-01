@@ -27,12 +27,14 @@ Trade-off: each PDF page = 1 Gemini API call, so **daily free-tier quota matters
 ```
 Browser → FastAPI (auth + UI + queue control)
                   ↕
-                Redis (job queue + sessions + daily-quota counter)
+         In-process store (fakeredis, or external Redis if REDIS_URL is set)
                   ↕
-         Worker (Gemini API client)
+         Worker thread (Gemini API client, runs inside the same container)
                   ↕
     Google Gemini API  (https://generativelanguage.googleapis.com)
 ```
+
+The API and Worker run as a **single process** — the worker is a background daemon thread started automatically when the app boots. No separate Redis service is needed; state is kept in-process via [fakeredis](https://github.com/cunla/fakeredis-py). If you set `REDIS_URL`, an external Redis is used instead (useful if you want persistent state across restarts).
 
 ---
 
@@ -82,6 +84,8 @@ The quota resets at midnight Pacific Time. Each PDF page = 1 request.
 | `SECRET_KEY` | Random 32+ char string (`openssl rand -hex 32`) |
 | `BASE_URL` | `https://YOUR-ZEABUR-DOMAIN` (no trailing slash) |
 
+> **No Redis service needed.** The app uses in-process storage by default. If you want persistent state across container restarts, add `REDIS_URL` pointing to an external Redis instance.
+
 ---
 
 ## Step 4 — Deploy
@@ -104,7 +108,7 @@ docker compose up -d
 docker compose logs -f
 ```
 
-On Zeabur, push the repo to GitHub, create a new project, connect the repo, and set the env variables in Zeabur's UI. Zeabur detects `docker-compose.yml` and deploys automatically.
+On Zeabur, push the repo to GitHub, create a new project, connect the repo, and set the env variables in Zeabur's UI. Zeabur detects the root `Dockerfile` and deploys it as **a single service** — no Redis or Worker service needed.
 
 ---
 
@@ -166,7 +170,7 @@ ocr:
   rpd_limit: 1000
 ```
 
-Then `docker compose up -d worker` to apply.
+Then `docker compose restart app` to apply.
 
 ---
 
@@ -175,9 +179,9 @@ Then `docker compose up -d worker` to apply.
 | Component | Idle | Peak |
 |---|---|---|
 | OS + existing services | ~1.2 GB | ~1.2 GB |
-| FastAPI + Redis | ~250 MB | ~250 MB |
-| Worker (Gemini client) | ~150 MB | ~600 MB (during page rasterization) |
-| **Total** | **~1.6 GB** | **~2.0 GB** |
+| FastAPI + in-process store | ~200 MB | ~200 MB |
+| Worker thread (Gemini client) | ~150 MB | ~600 MB (during page rasterization) |
+| **Total** | **~1.55 GB** | **~2.0 GB** |
 
 Easily fits on the **$3/mo (4 GB)** Zeabur plan now that PaddleOCR/Surya are gone.
 
@@ -187,29 +191,28 @@ Easily fits on the **$3/mo (4 GB)** Zeabur plan now that PaddleOCR/Surya are gon
 
 ```
 pdf2epub/
-├── docker-compose.yml
+├── Dockerfile              # single-container build (API + Worker merged)
+├── docker-compose.yml      # local dev — single service, no Redis
+├── requirements.txt        # merged deps for API + Worker
 ├── config.yaml
+├── store.py                # Redis / fakeredis provider (shared by API + Worker)
 ├── .env.example
 ├── .dockerignore
 │
 ├── Api/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── main.py                 # /api/upload, /api/start, /api/quota, …
+│   ├── main.py             # /api/upload, /api/start, /api/quota, …
 │   └── static/
-│       ├── index.html          # main UI with quota indicator + warning modal
+│       ├── index.html      # main UI with quota indicator + warning modal
 │       └── login.html
 │
 └── Worker/
-    ├── Dockerfile              # slim — no torch, no surya
-    ├── requirements.txt
-    ├── worker.py               # job loop + daily quota tracking
-    ├── ocr_engine.py           # abstract OCREngine interface
-    ├── engine_factory.py       # only "gemini" registered
-    ├── gemini_engine.py        # ⭐ the Gemini API integration
-    ├── pdf_ingestion.py        # PyMuPDF
-    ├── structure_analysis.py   # text → headings / paragraphs / footnotes / …
-    └── epub_assembly.py        # EbookLib
+    ├── worker.py           # job loop + daily quota tracking
+    ├── ocr_engine.py       # abstract OCREngine interface
+    ├── engine_factory.py   # only "gemini" registered
+    ├── gemini_engine.py    # ⭐ the Gemini API integration
+    ├── pdf_ingestion.py    # PyMuPDF
+    ├── structure_analysis.py # text → headings / paragraphs / footnotes / …
+    └── epub_assembly.py    # EbookLib
 ```
 
 ---

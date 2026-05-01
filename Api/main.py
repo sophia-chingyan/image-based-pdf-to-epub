@@ -4,12 +4,13 @@ import json
 import time
 import secrets
 import aiofiles
+import threading
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
 import yaml
-import redis.asyncio as aioredis
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Depends
 from fastapi.responses import (
     HTMLResponse, RedirectResponse, JSONResponse, FileResponse
@@ -18,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
+from store import get_async_redis
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CONFIG_PATH = Path(os.getenv("CONFIG_PATH", "/app/config.yaml"))
@@ -30,7 +32,6 @@ OUTPUT_DIR = Path("/app/outputs")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-REDIS_URL     = os.environ["REDIS_URL"]
 SECRET_KEY    = os.environ["SECRET_KEY"]
 ALLOWED_EMAIL = os.environ["ALLOWED_EMAIL"].strip().lower()
 
@@ -55,7 +56,15 @@ def pacific_today_key() -> str:
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
-app = FastAPI(title="PDF→EPUB Converter")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start the background worker thread on application startup."""
+    from worker import main as worker_main
+    t = threading.Thread(target=worker_main, daemon=True, name="pdf-worker")
+    t.start()
+    yield
+
+app = FastAPI(title="PDF→EPUB Converter", lifespan=lifespan)
 
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, https_only=True)
 app.add_middleware(
@@ -80,7 +89,7 @@ oauth.register(
 
 # ── Redis helper ──────────────────────────────────────────────────────────────
 async def get_redis():
-    return aioredis.from_url(REDIS_URL, decode_responses=True)
+    return await get_async_redis()
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 async def create_session(request: Request, email: str) -> None:

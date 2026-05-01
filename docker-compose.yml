@@ -1,61 +1,28 @@
 version: "3.9"
 
 services:
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  api:
+  app:
     build:
       context: .
-      dockerfile: Api/Dockerfile
+      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
-      - REDIS_URL=redis://redis:6379
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - ALLOWED_EMAIL=${ALLOWED_EMAIL}
       - SECRET_KEY=${SECRET_KEY}
       - BASE_URL=${BASE_URL}
-    volumes:
-      - shared_uploads:/app/uploads
-      - shared_outputs:/app/outputs
-    depends_on:
-      redis:
-        condition: service_healthy
-
-  worker:
-    build:
-      context: .
-      dockerfile: Worker/Dockerfile
-    restart: unless-stopped
-    environment:
-      - REDIS_URL=redis://redis:6379
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # Optional: set REDIS_URL to use an external Redis instead of in-process storage
+      # - REDIS_URL=redis://your-redis-host:6379
     volumes:
-      - shared_uploads:/app/uploads
-      - shared_outputs:/app/outputs
-      - shared_tmpwork:/app/tmp-work
-    depends_on:
-      redis:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 1g
+      - app_uploads:/app/uploads
+      - app_outputs:/app/outputs
+      - app_tmpwork:/app/tmp-work
 
 volumes:
-  redis_data:
-  shared_uploads:
-  shared_outputs:
-  shared_tmpwork:
+  app_uploads:
+  app_outputs:
+  app_tmpwork:

@@ -24,8 +24,8 @@ import traceback
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-import redis
 import yaml
+from store import get_sync_redis
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,7 +38,6 @@ CONFIG_PATH = Path(os.getenv("CONFIG_PATH", "/app/config.yaml"))
 with open(CONFIG_PATH) as f:
     CFG = yaml.safe_load(f)
 
-REDIS_URL   = os.environ["REDIS_URL"]
 UPLOAD_DIR  = Path("/app/uploads")
 OUTPUT_DIR  = Path("/app/outputs")
 TMPWORK_DIR = Path("/app/tmp-work")
@@ -266,7 +265,7 @@ def main():
     logger.info("OCR engine ready.")
 
     # ── Connect to Redis ──────────────────────────────────────────────────────
-    r = redis.from_url(REDIS_URL, decode_responses=True)
+    r = get_sync_redis()
 
     last_cleanup = time.time()
     CLEANUP_INTERVAL = 3600  # 1 hour
