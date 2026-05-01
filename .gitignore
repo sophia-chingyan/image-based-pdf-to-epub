@@ -1,0 +1,10 @@
+.env
+*.pyc
+__pycache__/
+.DS_Store
+*.epub
+*.pdf
+/models/
+uploads/
+outputs/
+tmp-work/

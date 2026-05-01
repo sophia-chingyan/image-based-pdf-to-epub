@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PDF → EPUB Converter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;600;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --ink:      #1a1614;
+      --paper:    #f5f0e8;
+      --cream:    #fffdf8;
+      --red:      #c0392b;
+      --red-dim:  #8b2a1f;
+      --green:    #27624a;
+      --amber:    #c07000;
+      --muted:    #7a6e65;
+      --border:   #d4c9b8;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: 'Shippori Mincho', serif;
+    }
+
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: repeating-linear-gradient(
+        90deg, transparent, transparent 80px,
+        rgba(0,0,0,0.03) 80px, rgba(0,0,0,0.03) 81px
+      );
+      pointer-events: none; z-index: 0;
+    }
+
+    .container {
+      position: relative; z-index: 1;
+      max-width: 860px; margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+    }
+
+    header {
+      display: flex; align-items: baseline; justify-content: space-between;
+      padding: 2rem 0 1.5rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2rem;
+    }
+    .brand { display: flex; align-items: baseline; gap: 0.75rem; }
+    .brand-mark { font-size: 2.2rem; color: var(--red); line-height: 1; }
+    .brand-title { font-size: 1.15rem; font-weight: 800; letter-spacing: 0.03em; }
+    .brand-sub {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.68rem; font-weight: 300;
+      color: var(--muted);
+      letter-spacing: 0.1em; text-transform: uppercase;
+      margin-left: 0.25rem;
+    }
+    .logout-btn {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem; color: var(--muted);
+      text-decoration: none;
+      letter-spacing: 0.08em;
+      border-bottom: 1px solid transparent;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .logout-btn:hover { color: var(--red); border-color: var(--red); }
+
+    /* ── Quota indicator ── */
+    .quota-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.6rem 0.9rem;
+      background: var(--cream);
+      border: 1px solid var(--border);
+      margin-bottom: 2rem;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    .quota-label { letter-spacing: 0.06em; }
+    .quota-value { color: var(--ink); }
+    .quota-value.warn { color: var(--amber); }
+    .quota-value.danger { color: var(--red); }
+
+    .upload-section { margin-bottom: 2.5rem; }
+
+    .section-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.68rem; font-weight: 500;
+      letter-spacing: 0.15em; text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1rem;
+      display: flex; align-items: center; gap: 0.75rem;
+    }
+    .section-label::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      background: var(--cream);
+      padding: 3rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--red); background: #fff9f4;
+    }
+    .drop-zone input[type="file"] {
+      position: absolute; inset: 0;
+      opacity: 0; cursor: pointer;
+      width: 100%; height: 100%;
+    }
+    .drop-icon {
+      font-size: 2.5rem; color: var(--border);
+      margin-bottom: 1rem; transition: color 0.2s;
+    }
+    .drop-zone:hover .drop-icon, .drop-zone.drag-over .drop-icon { color: var(--red); }
+    .drop-text { font-size: 1rem; margin-bottom: 0.4rem; }
+    .drop-meta {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem; color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+
+    #progress-panel {
+      display: none;
+      background: var(--cream);
+      border: 1px solid var(--border);
+      padding: 1.5rem;
+      margin-bottom: 2.5rem;
+    }
+    .progress-file {
+      font-weight: 600; font-size: 0.95rem;
+      margin-bottom: 1rem;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .progress-file-icon { color: var(--red); }
+    .progress-bar-track {
+      height: 4px; background: var(--border);
+      margin-bottom: 0.75rem; position: relative; overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%; background: var(--red);
+      width: 0%; transition: width 0.4s ease;
+    }
+    .progress-bar-fill.indeterminate {
+      width: 40% !important;
+      animation: slide 1.4s infinite;
+    }
+    @keyframes slide {
+      0%   { transform: translateX(-150%); }
+      100% { transform: translateX(350%); }
+    }
+    .progress-message {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem; color: var(--muted);
+      letter-spacing: 0.04em; margin-bottom: 1rem;
+    }
+    .progress-pct {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem; color: var(--ink); float: right;
+    }
+
+    .download-btn {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.7rem 1.4rem;
+      background: var(--green); color: #fff;
+      text-decoration: none;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.8rem; letter-spacing: 0.06em;
+      transition: background 0.2s, transform 0.1s;
+      cursor: pointer; border: none;
+    }
+    .download-btn:hover {
+      background: #1e4d39; transform: translate(-1px, -1px);
+    }
+
+    .error-msg {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.78rem; color: var(--red);
+      background: #fdf0ee;
+      border-left: 3px solid var(--red);
+      padding: 0.6rem 0.8rem; margin-top: 0.5rem;
+    }
+
+    .history-table {
+      width: 100%; border-collapse: collapse;
+      font-family: 'DM Mono', monospace; font-size: 0.75rem;
+    }
+    .history-table th {
+      text-align: left; padding: 0.5rem 0.75rem;
+      font-weight: 500; letter-spacing: 0.08em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      text-transform: uppercase; font-size: 0.65rem;
+    }
+    .history-table td {
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid rgba(0,0,0,0.05);
+      vertical-align: middle;
+    }
+    .history-table tr:last-child td { border-bottom: none; }
+    .history-table tr:hover td { background: rgba(0,0,0,0.02); }
+
+    .status-badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      font-size: 0.65rem; letter-spacing: 0.06em;
+      text-transform: uppercase; font-weight: 500;
+    }
+    .status-badge.queued     { background: #eee8dc; color: var(--muted); }
+    .status-badge.processing { background: #fef3cd; color: #856404; }
+    .status-badge.done       { background: #d4edda; color: var(--green); }
+    .status-badge.failed     { background: #f8d7da; color: var(--red); }
+    .status-badge.pending    { background: #e8e8ff; color: #4444aa; }
+    .status-badge.stopped    { background: #ffe8e8; color: #aa4444; }
+
+    .action-btn {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem; letter-spacing: 0.05em;
+      padding: 0.25rem 0.6rem;
+      border: none; cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .action-btn:hover { transform: translate(-1px, -1px); }
+    .btn-start  { background: var(--green); color: #fff; }
+    .btn-start:hover  { background: #1e4d39; }
+    .btn-stop   { background: var(--amber); color: #fff; }
+    .btn-stop:hover   { background: #8a5000; }
+    .btn-delete { background: var(--red); color: #fff; }
+    .btn-delete:hover { background: var(--red-dim); }
+    .dl-link {
+      color: var(--green); text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.15s;
+    }
+    .dl-link:hover { border-color: var(--green); }
+    .filename-cell {
+      max-width: 260px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .empty-history {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem; color: var(--muted);
+      padding: 1.5rem 0; text-align: center;
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 2rem; right: 2rem;
+      background: var(--ink); color: var(--paper);
+      padding: 0.75rem 1.25rem;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.78rem; letter-spacing: 0.05em;
+      opacity: 0; transform: translateY(10px);
+      transition: opacity 0.3s, transform 0.3s;
+      z-index: 200; pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(26, 22, 20, 0.6);
+      display: none;
+      align-items: center; justify-content: center;
+      z-index: 150;
+      padding: 1.5rem;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal {
+      background: var(--cream);
+      border: 1px solid var(--border);
+      max-width: 460px; width: 100%;
+      padding: 2rem;
+      box-shadow: 4px 4px 0 var(--border);
+      position: relative;
+    }
+    .modal::before, .modal::after {
+      content: ''; position: absolute;
+      width: 14px; height: 14px;
+      border-color: var(--amber); border-style: solid;
+    }
+    .modal::before { top: 8px; left: 8px; border-width: 2px 0 0 2px; }
+    .modal::after  { bottom: 8px; right: 8px; border-width: 0 2px 2px 0; }
+
+    .modal-title {
+      font-size: 1.1rem; font-weight: 800;
+      color: var(--amber);
+      margin-bottom: 1rem; letter-spacing: 0.02em;
+    }
+    .modal-body {
+      font-size: 0.9rem; line-height: 1.7;
+      margin-bottom: 1.5rem; color: var(--ink);
+    }
+    .modal-stats {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      background: rgba(192, 112, 0, 0.08);
+      border-left: 3px solid var(--amber);
+      padding: 0.7rem 0.9rem;
+      margin: 1rem 0;
+    }
+    .modal-stats div { margin: 0.2rem 0; }
+    .modal-actions {
+      display: flex; gap: 0.5rem; justify-content: flex-end;
+    }
+    .modal-btn {
+      padding: 0.6rem 1.2rem;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+      border: none; cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .modal-btn:hover { transform: translate(-1px, -1px); }
+    .modal-cancel { background: var(--border); color: var(--ink); }
+    .modal-cancel:hover { background: #b8aa97; }
+    .modal-proceed { background: var(--amber); color: #fff; }
+    .modal-proceed:hover { background: #8a5000; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="brand">
+      <span class="brand-mark">文</span>
+      <div>
+        <span class="brand-title">PDF → EPUB</span>
+        <span class="brand-sub">Gemini · CJK · Vertical Text</span>
+      </div>
+    </div>
+    <a href="/auth/logout" class="logout-btn">Sign out ↗</a>
+  </header>
+
+  <!-- Quota indicator -->
+  <div class="quota-bar" id="quota-bar">
+    <span class="quota-label">Gemini quota today</span>
+    <span><span class="quota-value" id="quota-used">—</span> / <span id="quota-limit">—</span> requests</span>
+  </div>
+
+  <!-- Upload -->
+  <div class="upload-section">
+    <div class="section-label">New Conversion</div>
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" accept=".pdf"/>
+      <div class="drop-icon">⬆</div>
+      <div class="drop-text">Drop PDF here or click to browse</div>
+      <div class="drop-meta">Max 100 MB · Image-based PDF · CJK + English</div>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div id="progress-panel">
+    <div class="progress-file">
+      <span class="progress-file-icon">📄</span>
+      <span id="progress-filename">—</span>
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:baseline;">
+      <div class="progress-message" id="progress-message">Starting…</div>
+      <div class="progress-pct" id="progress-pct">0%</div>
+    </div>
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill" id="progress-bar"></div>
+    </div>
+    <div id="progress-actions"></div>
+  </div>
+
+  <!-- History -->
+  <div id="history-section">
+    <div class="section-label">Job History</div>
+    <div id="history-content">
+      <div class="empty-history">No conversions yet.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Page-count warning modal -->
+<div class="modal-overlay" id="warn-modal">
+  <div class="modal">
+    <div class="modal-title">⚠ Quota notice</div>
+    <div class="modal-body" id="warn-modal-body">
+      This PDF requires more Gemini API calls than you have remaining today.
+    </div>
+    <div class="modal-stats" id="warn-modal-stats"></div>
+    <div class="modal-actions">
+      <button class="modal-btn modal-cancel" id="warn-cancel">Cancel</button>
+      <button class="modal-btn modal-proceed" id="warn-proceed">Start anyway</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  let currentJobId = null;
+  let pollInterval = null;
+  let pendingStartJobId = null;
+
+  // ── Elements ───────────────────────────────────────────────────────────────
+  const dropZone       = document.getElementById('drop-zone');
+  const fileInput      = document.getElementById('file-input');
+  const progressPanel  = document.getElementById('progress-panel');
+  const progressBar    = document.getElementById('progress-bar');
+  const progressMsg    = document.getElementById('progress-message');
+  const progressPct    = document.getElementById('progress-pct');
+  const progressFn     = document.getElementById('progress-filename');
+  const progressActs   = document.getElementById('progress-actions');
+  const historyContent = document.getElementById('history-content');
+  const toast          = document.getElementById('toast');
+  const quotaUsed      = document.getElementById('quota-used');
+  const quotaLimit     = document.getElementById('quota-limit');
+  const warnModal      = document.getElementById('warn-modal');
+  const warnModalBody  = document.getElementById('warn-modal-body');
+  const warnModalStats = document.getElementById('warn-modal-stats');
+
+  // ── Utils ──────────────────────────────────────────────────────────────────
+  function showToast(msg, duration = 3000) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), duration);
+  }
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function formatDate(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts * 1000);
+    return d.toLocaleDateString() + ' ' +
+           d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  // ── Quota ──────────────────────────────────────────────────────────────────
+  async function fetchQuota() {
+    try {
+      const res = await fetch('/api/quota');
+      if (!res.ok) return null;
+      const q = await res.json();
+      quotaUsed.textContent  = q.used_today;
+      quotaLimit.textContent = q.rpd_limit;
+      const ratio = q.used_today / q.rpd_limit;
+      quotaUsed.classList.remove('warn', 'danger');
+      if (ratio >= 0.9) quotaUsed.classList.add('danger');
+      else if (ratio >= 0.6) quotaUsed.classList.add('warn');
+      return q;
+    } catch (_) { return null; }
+  }
+
+  // ── Drag & drop ────────────────────────────────────────────────────────────
+  dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+
+  // ── Upload ─────────────────────────────────────────────────────────────────
+  async function handleFile(file) {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      showToast('Please select a PDF file.');
+      return;
+    }
+    if (file.size > 100 * 1024 * 1024) {
+      showToast('File exceeds 100 MB limit.');
+      return;
+    }
+
+    progressPanel.style.display = 'block';
+    progressFn.textContent = file.name;
+    progressMsg.textContent = 'Uploading…';
+    progressPct.textContent = '0%';
+    progressActs.innerHTML = '';
+    progressBar.style.width = '0%';
+    progressBar.classList.add('indeterminate');
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Upload failed.' }));
+        throw new Error(err.detail || 'Upload failed.');
+      }
+      const data = await res.json();
+      currentJobId = data.job_id;
+      progressBar.classList.remove('indeterminate');
+      progressBar.style.width = '0%';
+      const pages = data.page_count || 0;
+      progressMsg.textContent = pages
+        ? `Ready to start · ${pages} pages`
+        : 'Ready to start';
+      progressPct.textContent = '0%';
+      renderPendingActions(currentJobId);
+      loadHistory();
+      fetchQuota();
+    } catch (e) {
+      progressBar.classList.remove('indeterminate');
+      progressMsg.textContent = 'Upload failed.';
+      progressActs.innerHTML = `<div class="error-msg">${escHtml(e.message)}</div>`;
+      showToast('Upload failed: ' + e.message);
+    }
+  }
+
+  // ── Pending / stopped action buttons ──────────────────────────────────────
+  function renderPendingActions(jobId) {
+    const id = escHtml(jobId);
+    progressActs.innerHTML = `
+      <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+        <button class="action-btn btn-start" data-action="start" data-job-id="${id}">▶ Start</button>
+        <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${id}">✕ Delete</button>
+      </div>`;
+  }
+  function renderStoppedActions(jobId) {
+    const id = escHtml(jobId);
+    progressActs.innerHTML = `
+      <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+        <button class="action-btn btn-start" data-action="start" data-job-id="${id}">▶ Restart</button>
+        <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${id}">✕ Delete</button>
+      </div>`;
+  }
+
+  // ── Start / quota check ────────────────────────────────────────────────────
+  async function startJob(jobId) {
+    // Pre-flight: check page count vs remaining quota
+    let pageCount = 0;
+    try {
+      const r = await fetch(`/api/status/${jobId}`);
+      if (r.ok) {
+        const j = await r.json();
+        pageCount = j.page_count || 0;
+      }
+    } catch (_) {}
+
+    const q = await fetchQuota();
+
+    if (q && pageCount > 0) {
+      const remaining = q.remaining;
+      if (pageCount > remaining) {
+        // Show warning modal — wait for user choice
+        pendingStartJobId = jobId;
+        warnModalBody.innerHTML =
+          `This PDF will need approximately <strong>${pageCount}</strong> ` +
+          `Gemini API calls (1 per page), but you only have ` +
+          `<strong>${remaining}</strong> remaining today.<br><br>` +
+          `If you start anyway, the job will pause when the daily quota is ` +
+          `reached and resume after midnight Pacific Time. ` +
+          `Or you can cancel and try a smaller PDF first.`;
+        warnModalStats.innerHTML =
+          `<div>PDF pages: ${pageCount}</div>` +
+          `<div>Quota used today: ${q.used_today} / ${q.rpd_limit}</div>` +
+          `<div>Remaining: ${remaining}</div>`;
+        warnModal.classList.add('show');
+        return;
+      }
+    }
+
+    actuallyStartJob(jobId);
+  }
+
+  async function actuallyStartJob(jobId) {
+    try {
+      const res = await fetch(`/api/start/${jobId}`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Start failed.' }));
+        throw new Error(err.detail || 'Start failed.');
+      }
+      progressMsg.textContent = 'Queued…';
+      const id = escHtml(jobId);
+      progressActs.innerHTML = `
+        <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+          <button class="action-btn btn-stop" data-action="stop" data-job-id="${id}">⏹ Stop</button>
+        </div>`;
+      startPolling(jobId);
+      loadHistory();
+    } catch (e) {
+      showToast('Start failed: ' + e.message);
+    }
+  }
+
+  document.getElementById('warn-cancel').addEventListener('click', () => {
+    warnModal.classList.remove('show');
+    pendingStartJobId = null;
+  });
+  document.getElementById('warn-proceed').addEventListener('click', () => {
+    const jid = pendingStartJobId;
+    warnModal.classList.remove('show');
+    pendingStartJobId = null;
+    if (jid) actuallyStartJob(jid);
+  });
+
+  async function stopJob(jobId) {
+    try {
+      const res = await fetch(`/api/stop/${jobId}`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Stop failed.' }));
+        throw new Error(err.detail || 'Stop failed.');
+      }
+      showToast('Stop requested.');
+    } catch (e) {
+      showToast('Stop failed: ' + e.message);
+    }
+  }
+
+  async function deleteJob(jobId, isCurrentJob = false) {
+    if (!confirm('Delete this job and its files?')) return;
+    try {
+      const res = await fetch(`/api/delete/${jobId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Delete failed.' }));
+        throw new Error(err.detail || 'Delete failed.');
+      }
+      if (isCurrentJob) {
+        if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+        currentJobId = null;
+        progressPanel.style.display = 'none';
+      }
+      showToast('Job deleted.');
+      loadHistory();
+    } catch (e) {
+      showToast('Delete failed: ' + e.message);
+    }
+  }
+
+  // ── Polling ────────────────────────────────────────────────────────────────
+  function startPolling(jobId) {
+    if (pollInterval) clearInterval(pollInterval);
+    pollInterval = setInterval(() => pollStatus(jobId), 5000);
+    pollStatus(jobId);
+  }
+
+  async function pollStatus(jobId) {
+    try {
+      const res = await fetch(`/api/status/${jobId}`);
+      if (!res.ok) return;
+      const job = await res.json();
+      updateProgressUI(job);
+      fetchQuota();
+      if (['done', 'failed', 'stopped'].includes(job.status)) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+        loadHistory();
+      }
+    } catch (_) {}
+  }
+
+  function updateProgressUI(job) {
+    progressMsg.textContent = job.message || job.status;
+    const pct = job.progress || 0;
+    progressPct.textContent = `${pct}%`;
+    progressBar.style.width = `${pct}%`;
+    if (job.status === 'queued') progressBar.classList.add('indeterminate');
+    else                          progressBar.classList.remove('indeterminate');
+
+    progressActs.innerHTML = '';
+    const id = escHtml(job.job_id);
+
+    if (job.status === 'done') {
+      progressActs.innerHTML = `
+        <div style="display:flex;gap:0.5rem;margin-top:0.5rem;align-items:center;">
+          <a class="download-btn" href="/api/download/${id}" download>↓ Download EPUB</a>
+          <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${id}">✕ Delete</button>
+        </div>`;
+      showToast('Conversion complete!');
+    } else if (job.status === 'failed') {
+      progressActs.innerHTML = `
+        <div class="error-msg">${escHtml(job.error || 'An error occurred during conversion.')}</div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+          <button class="action-btn btn-start" data-action="start" data-job-id="${id}">▶ Retry</button>
+          <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${id}">✕ Delete</button>
+        </div>`;
+    } else if (job.status === 'stopped') {
+      renderStoppedActions(job.job_id);
+    } else if (job.status === 'pending') {
+      renderPendingActions(job.job_id);
+    } else {
+      progressActs.innerHTML = `
+        <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+          <button class="action-btn btn-stop" data-action="stop" data-job-id="${id}">⏹ Stop</button>
+        </div>`;
+    }
+  }
+
+  // ── History ────────────────────────────────────────────────────────────────
+  async function historyStartJob(jobId) {
+    currentJobId = jobId;
+    progressPanel.style.display = 'block';
+    try {
+      const r = await fetch(`/api/status/${jobId}`);
+      if (r.ok) {
+        const j = await r.json();
+        progressFn.textContent = j.filename || '';
+      }
+    } catch (_) {}
+    progressMsg.textContent = 'Checking quota…';
+    progressPct.textContent = '0%';
+    progressBar.style.width = '0%';
+    progressActs.innerHTML = '';
+    startJob(jobId);
+  }
+
+  async function historyStopJob(jobId) {
+    try {
+      const res = await fetch(`/api/stop/${jobId}`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Stop failed.' }));
+        throw new Error(err.detail || 'Stop failed.');
+      }
+      showToast('Stop requested.');
+      loadHistory();
+    } catch (e) {
+      showToast('Stop failed: ' + e.message);
+    }
+  }
+
+  async function historyDeleteJob(jobId) {
+    if (!confirm('Delete this job and its files?')) return;
+    try {
+      const res = await fetch(`/api/delete/${jobId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Delete failed.' }));
+        throw new Error(err.detail || 'Delete failed.');
+      }
+      if (jobId === currentJobId) {
+        if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+        currentJobId = null;
+        progressPanel.style.display = 'none';
+      }
+      showToast('Job deleted.');
+      loadHistory();
+    } catch (e) {
+      showToast('Delete failed: ' + e.message);
+    }
+  }
+
+  async function loadHistory() {
+    try {
+      const res = await fetch('/api/history');
+      if (!res.ok) return;
+      const jobs = await res.json();
+
+      if (!jobs.length) {
+        historyContent.innerHTML = '<div class="empty-history">No conversions yet.</div>';
+        return;
+      }
+
+      const rows = jobs.map(job => {
+        const id = escHtml(job.job_id);
+        const pages = job.page_count ? `${job.page_count} pp` : '—';
+        let actions = '';
+        if (job.status === 'done') {
+          actions = `<a class="dl-link" href="/api/download/${id}" download>Download</a>
+            &nbsp;<button class="action-btn btn-delete" data-action="history-delete" data-job-id="${id}">✕</button>`;
+        } else if (['pending', 'stopped', 'failed'].includes(job.status)) {
+          const label = job.status === 'pending' ? '▶ Start' : job.status === 'stopped' ? '▶ Restart' : '▶ Retry';
+          actions = `<button class="action-btn btn-start" data-action="history-start" data-job-id="${id}">${label}</button>
+            &nbsp;<button class="action-btn btn-delete" data-action="history-delete" data-job-id="${id}">✕</button>`;
+        } else if (['queued', 'processing'].includes(job.status)) {
+          actions = `<button class="action-btn btn-stop" data-action="history-stop" data-job-id="${id}">⏹ Stop</button>`;
+        }
+        return `
+          <tr>
+            <td class="filename-cell" title="${escHtml(job.filename)}">${escHtml(job.filename)}</td>
+            <td>${pages}</td>
+            <td><span class="status-badge ${escHtml(job.status)}">${escHtml(job.status)}</span></td>
+            <td>${formatDate(job.created_at)}</td>
+            <td>${actions || '—'}</td>
+          </tr>`;
+      }).join('');
+
+      historyContent.innerHTML = `
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>File</th><th>Pages</th><th>Status</th>
+              <th>Created</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    } catch (_) {}
+  }
+
+  // ── Delegated button handler ───────────────────────────────────────────────
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const jobId  = btn.dataset.jobId;
+    if      (action === 'start')           startJob(jobId);
+    else if (action === 'stop')            stopJob(jobId);
+    else if (action === 'delete-current')  deleteJob(jobId, true);
+    else if (action === 'history-start')   historyStartJob(jobId);
+    else if (action === 'history-stop')    historyStopJob(jobId);
+    else if (action === 'history-delete')  historyDeleteJob(jobId);
+  });
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  loadHistory();
+  fetchQuota();
+  setInterval(fetchQuota, 30000);  // refresh quota every 30s
+</script>
+</body>
+</html>

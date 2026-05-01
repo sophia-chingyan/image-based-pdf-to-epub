@@ -1,0 +1,17 @@
+# Gemini SDK
+google-genai>=0.3.0,<1.0
+
+# PDF / image / EPUB
+PyMuPDF==1.23.8
+ebooklib==0.18.0
+Pillow==10.1.0
+
+# Job queue
+redis==5.0.1
+
+# Config
+pyyaml==6.0.1
+
+# Image processing
+opencv-python-headless==4.9.0.80
+numpy>=1.26,<2.0

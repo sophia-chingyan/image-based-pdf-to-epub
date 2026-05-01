@@ -1,0 +1,28 @@
+ocr:
+  engine: gemini              # gemini (only currently registered engine)
+  model_name: gemini-2.5-flash
+  # Gemini free-tier rate limits for gemini-2.5-flash:
+  #   10 requests per minute · 250 requests per day
+  rpm_limit: 10
+  rpd_limit: 250
+  max_retries: 3
+  request_timeout_s: 120
+  confidence_threshold: 0.7   # unused for Gemini but kept for OCREngine interface
+  dpi: 200                    # lower than 300 to keep image tokens (cost) down
+
+pipeline:
+  max_pdf_size_mb: 100
+  page_batch_size: 5
+  upload_retention_hours: 24
+  output_retention_days: 7
+  tmp_cleanup_on_complete: true
+
+epub:
+  default_writing_mode: auto  # auto | horizontal | vertical
+  embed_page_numbers: true
+  chapter_per_page: true
+
+server:
+  max_concurrent_jobs: 1
+  port: 8000
+  job_history_limit: 10
