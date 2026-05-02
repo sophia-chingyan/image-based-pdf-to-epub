@@ -18,13 +18,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Application source
+# Application source — preserve the package layout so Path(__file__).parent
+# resolves correctly inside Api/main.py
 COPY config.yaml .
 COPY store.py .
-COPY Api/main.py .
-COPY Api/static ./static
+COPY Api/ Api/
 COPY Worker/ Worker/
 
-EXPOSE ${PORT:-8000}
+EXPOSE 8080
 
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*'"]
+CMD ["sh", "-c", "uvicorn Api.main:app --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips '*'"]

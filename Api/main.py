@@ -71,7 +71,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_static_dir = Path("/app/static")
+_static_dir = Path(__file__).parent / "static"
 if _static_dir.is_dir():
     app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
@@ -156,8 +156,8 @@ async def auth_logout(request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     user = await get_current_user(request)
-    static_path = Path("/app/static/index.html")
-    login_path  = Path("/app/static/login.html")
+    static_path = _static_dir / "index.html"
+    login_path  = _static_dir / "login.html"
     if user:
         async with aiofiles.open(static_path) as f:
             return HTMLResponse(await f.read())
