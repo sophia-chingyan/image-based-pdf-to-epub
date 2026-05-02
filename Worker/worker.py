@@ -8,7 +8,6 @@ Background process that:
 4. Updates job status in Redis
 5. Handles cleanup of temporary files
 6. Honours stop requests issued by the user via /api/stop
-7. Tracks daily Gemini API usage and warns/blocks when quota is exceeded
 
 Each PDF page = exactly ONE Gemini API call (OCR + layout + direction
 returned together in a single structured-JSON response).
@@ -22,7 +21,6 @@ import time
 import shutil
 import logging
 import traceback
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 # Ensure the Worker package directory is on sys.path so that sibling modules
@@ -57,41 +55,10 @@ DPI          = CFG["ocr"]["dpi"]
 BATCH_SIZE   = CFG["pipeline"]["page_batch_size"]
 WRITING_MODE = CFG["epub"]["default_writing_mode"]
 CLEANUP      = CFG["pipeline"]["tmp_cleanup_on_complete"]
-RPD_LIMIT    = int(CFG["ocr"].get("rpd_limit", 250))
-
-
-# ── Daily usage tracking (uses Pacific Time, which is when Google resets) ─────
-# Pacific Time is UTC-8 (PST) or UTC-7 (PDT). We approximate as UTC-7,
-# which is the correct value for ~8 months of the year. The 1-hour drift
-# during winter is acceptable because:
-#   - We use this purely as a soft warning, not a hard block
-#   - Google's actual server-side counter is what enforces quota
-PACIFIC_OFFSET = timedelta(hours=-7)
-
-
-def pacific_today_key() -> str:
-    """Return YYYY-MM-DD for the current Pacific date — used as Redis key suffix."""
-    now_pacific = datetime.now(timezone.utc) + PACIFIC_OFFSET
-    return now_pacific.strftime("%Y-%m-%d")
-
-
-def get_today_usage(r: redis.Redis) -> int:
-    """Return number of Gemini API calls made today (Pacific time)."""
-    raw = r.get(f"gemini_usage:{pacific_today_key()}")
-    return int(raw) if raw else 0
-
-
-def increment_usage(r: redis.Redis, count: int = 1) -> int:
-    """Increment today's usage counter and return new total."""
-    key = f"gemini_usage:{pacific_today_key()}"
-    new_total = r.incrby(key, count)
-    # Set 48-hour expiry so old day-keys disappear automatically
-    r.expire(key, 48 * 3600)
-    return int(new_total)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def update_job(r: redis.Redis, job_id: str, **kwargs):
+def update_job(r, job_id: str, **kwargs):
     """Update fields of a job record in Redis."""
     raw = r.get(f"job:{job_id}")
     if not raw:
@@ -101,16 +68,7 @@ def update_job(r: redis.Redis, job_id: str, **kwargs):
     r.set(f"job:{job_id}", json.dumps(job))
 
 
-def page_count_safe(pdf_path: Path) -> int:
-    """Return total page count of a PDF without running OCR."""
-    import fitz
-    doc = fitz.open(str(pdf_path))
-    n = len(doc)
-    doc.close()
-    return n
-
-
-def run_pipeline(r: redis.Redis, job: dict, engine) -> None:
+def run_pipeline(r, job: dict, engine) -> None:
     """Full PDF → EPUB conversion pipeline for a single job."""
     from pdf_ingestion import ingest_pdf, rasterize_page
     from structure_analysis import analyse_page, build_toc, DocumentStructure
@@ -148,24 +106,10 @@ def run_pipeline(r: redis.Redis, job: dict, engine) -> None:
                 ingested.doc.close()
                 return
 
-            # ── Daily quota check (hard stop if exceeded) ────────────────────
-            usage_today = get_today_usage(r)
-            if usage_today >= RPD_LIMIT:
-                msg = (f"Daily Gemini quota reached ({usage_today}/{RPD_LIMIT}). "
-                       f"Quota resets at midnight Pacific Time. Job will be "
-                       f"stopped — restart it tomorrow to continue.")
-                logger.warning(msg)
-                update_job(r, job_id, status="failed",
-                           message="Daily Gemini quota reached.",
-                           error=msg)
-                ingested.doc.close()
-                return
-
             progress = int(5 + (page_num / total_pages) * 85)
             update_job(
                 r, job_id,
-                message=(f"OCR Processing (page {page_num + 1} of {total_pages}) "
-                         f"· Quota {usage_today}/{RPD_LIMIT}…"),
+                message=f"OCR page {page_num + 1} / {total_pages}…",
                 progress=progress,
             )
 
@@ -176,9 +120,6 @@ def run_pipeline(r: redis.Redis, job: dict, engine) -> None:
             direction     = engine.detect_direction(page_img)
             text_blocks   = engine.recognize(page_img, direction)
             layout_blocks = engine.get_layout(page_img)
-
-            # Increment quota counter (one Gemini call was made for this page)
-            increment_usage(r, count=1)
 
             # Step 5: Structure analysis
             page_info = ingested.pages[page_num]
@@ -242,7 +183,7 @@ def run_pipeline(r: redis.Redis, job: dict, engine) -> None:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def cleanup_expired_files(r: redis.Redis):
+def cleanup_expired_files(r):
     """
     Delete uploads older than retention period and EPUBs past their expiry.
     Runs once per hour.
