@@ -16,6 +16,7 @@ returned together in a single structured-JSON response).
 
 from __future__ import annotations
 import os
+import sys
 import json
 import time
 import shutil
@@ -23,6 +24,12 @@ import logging
 import traceback
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+# Ensure the Worker package directory is on sys.path so that sibling modules
+# (engine_factory, pdf_ingestion, epub_assembly, etc.) can be imported with
+# bare names regardless of whether this file is run directly or imported as
+# part of the Worker package.
+sys.path.insert(0, str(Path(__file__).parent))
 
 import yaml
 from store import get_sync_redis
