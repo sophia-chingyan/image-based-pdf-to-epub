@@ -2,7 +2,6 @@ import os
 import uuid
 import json
 import time
-import secrets
 import aiofiles
 import threading
 from contextlib import asynccontextmanager
@@ -38,9 +37,6 @@ ALLOWED_EMAIL = os.environ["ALLOWED_EMAIL"].strip().lower()
 # Support both APP_BASE_URL (your Zeabur variable name) and BASE_URL
 BASE_URL = os.environ.get("APP_BASE_URL") or os.environ.get("BASE_URL", "http://localhost:8000")
 BASE_URL = BASE_URL.rstrip("/")
-
-# Optional password login (leave blank to disable)
-PASSWORD = os.environ.get("PASSWORD", "").strip()
 
 JOB_HISTORY = CFG["server"]["job_history_limit"]
 
@@ -151,25 +147,6 @@ async def auth_logout(request: Request):
         r = await get_redis()
         await r.delete(f"session:{token}")
         await r.aclose()
-    return RedirectResponse(url="/", status_code=302)
-
-
-@app.post("/auth/password")
-async def auth_password(request: Request):
-    """
-    Optional password login. Only active if the PASSWORD env var is set.
-    This is a fallback for when Google OAuth is unavailable or inconvenient.
-    """
-    if not PASSWORD:
-        raise HTTPException(status_code=404, detail="Password authentication is not enabled.")
-    form = await request.form()
-    submitted = (form.get("password") or "").strip()
-    if not secrets.compare_digest(submitted, PASSWORD):
-        return HTMLResponse(
-            "<h1>403 Access Denied</h1><p>Authentication failed.</p>",
-            status_code=403,
-        )
-    await create_session(request, ALLOWED_EMAIL)
     return RedirectResponse(url="/", status_code=302)
 
 

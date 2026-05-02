@@ -137,75 +137,6 @@
       flex-shrink: 0;
     }
 
-    /* ── Or divider ── */
-    .or-divider {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      margin: 1.5rem 0;
-      font-family: 'DM Mono', monospace;
-      font-size: 0.65rem;
-      color: var(--muted);
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-    }
-    .or-divider::before,
-    .or-divider::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: var(--border);
-    }
-
-    /* ── Password form ── */
-    .password-form {
-      display: flex;
-      flex-direction: column;
-      gap: 0.6rem;
-    }
-
-    .password-input {
-      width: 100%;
-      padding: 0.75rem 1rem;
-      border: 1px solid var(--border);
-      background: var(--paper);
-      font-family: 'DM Mono', monospace;
-      font-size: 0.85rem;
-      color: var(--ink);
-      outline: none;
-      transition: border-color 0.2s;
-    }
-
-    .password-input:focus {
-      border-color: var(--ink);
-    }
-
-    .password-btn {
-      width: 100%;
-      padding: 0.9rem 1.5rem;
-      background: transparent;
-      color: var(--ink);
-      border: 1px solid var(--ink);
-      cursor: pointer;
-      font-family: 'DM Mono', monospace;
-      font-size: 0.85rem;
-      font-weight: 400;
-      letter-spacing: 0.08em;
-      transition: background 0.2s, color 0.2s, transform 0.1s;
-    }
-
-    .password-btn:hover {
-      background: var(--ink);
-      color: var(--paper);
-      transform: translate(-2px, -2px);
-      box-shadow: 2px 2px 0 var(--border);
-    }
-
-    .password-btn:active {
-      transform: translate(0, 0);
-      box-shadow: none;
-    }
-
     .footnote {
       font-family: 'DM Mono', monospace;
       font-size: 0.65rem;
@@ -232,21 +163,6 @@
       </svg>
       Sign in with Google
     </a>
-
-    <!-- Password fallback (shown always; backend ignores it if PASSWORD is unset) -->
-    <div class="or-divider">or</div>
-
-    <form class="password-form" method="post" action="/auth/password">
-      <input
-        class="password-input"
-        type="password"
-        name="password"
-        placeholder="Enter password"
-        autocomplete="current-password"
-        required
-      />
-      <button class="password-btn" type="submit">Sign in with Password</button>
-    </form>
 
     <p class="footnote">Private · Single-user · Self-hosted</p>
   </div>
