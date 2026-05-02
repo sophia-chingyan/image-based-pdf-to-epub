@@ -120,7 +120,7 @@ async def require_auth(request: Request) -> str:
 # ── Auth routes ───────────────────────────────────────────────────────────────
 @app.get("/auth/login")
 async def auth_login(request: Request):
-    redirect_uri = f"{BASE_URL}/auth/callback"
+    redirect_uri = str(request.url_for("auth_callback"))
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
