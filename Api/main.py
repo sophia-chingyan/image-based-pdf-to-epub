@@ -71,7 +71,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory="/app/static"), name="static")
+_static_dir = Path("/app/static")
+if _static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 # ── OAuth ─────────────────────────────────────────────────────────────────────
 oauth = OAuth()
