@@ -23,13 +23,7 @@ COPY config.yaml .
 COPY store.py .
 COPY Api/main.py .
 COPY Api/static ./static
-COPY Worker/worker.py \
-     Worker/engine_factory.py \
-     Worker/gemini_engine.py \
-     Worker/ocr_engine.py \
-     Worker/pdf_ingestion.py \
-     Worker/epub_assembly.py \
-     Worker/structure_analysis.py ./
+COPY Worker/ Worker/
 
 EXPOSE ${PORT:-8000}
 
