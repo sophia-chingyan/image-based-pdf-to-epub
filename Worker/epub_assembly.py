@@ -112,11 +112,8 @@ figcaption {
 def assemble_epub(
     structure: DocumentStructure,
     output_path: Path,
-    writing_mode_override: str = "auto",  # "auto" | "horizontal" | "vertical"
+    writing_mode_override: str = "auto",
 ) -> None:
-    """
-    Build an EPUB 3 file from the DocumentStructure and write to output_path.
-    """
     logger.info(f"Assembling EPUB: {output_path}")
 
     book = epub.EpubBook()
@@ -126,62 +123,46 @@ def assemble_epub(
     if structure.author:
         book.add_author(structure.author)
 
-    # ── Stylesheets ──────────────────────────────────────────────────────────
     css_h = epub.EpubItem(
-        uid="css_horizontal",
-        file_name="style/horizontal.css",
-        media_type="text/css",
-        content=(HORIZONTAL_CSS + COMMON_CSS).encode(),
+        uid="css_horizontal", file_name="style/horizontal.css",
+        media_type="text/css", content=(HORIZONTAL_CSS + COMMON_CSS).encode(),
     )
     css_v = epub.EpubItem(
-        uid="css_vertical",
-        file_name="style/vertical.css",
-        media_type="text/css",
-        content=(VERTICAL_CSS + COMMON_CSS).encode(),
+        uid="css_vertical", file_name="style/vertical.css",
+        media_type="text/css", content=(VERTICAL_CSS + COMMON_CSS).encode(),
     )
     book.add_item(css_h)
     book.add_item(css_v)
 
-    # ── Add images as media items ────────────────────────────────────────────
     image_items: dict[str, epub.EpubItem] = {}
     for page in structure.pages:
         for img in page.images:
             if img.epub_id in image_items:
                 continue
             ext_to_mime = {
-                "png":  "image/png",
-                "jpeg": "image/jpeg",
-                "jpg":  "image/jpeg",
-                "gif":  "image/gif",
-                "webp": "image/webp",
+                "png": "image/png", "jpeg": "image/jpeg", "jpg": "image/jpeg",
+                "gif": "image/gif", "webp": "image/webp",
             }
             mime = ext_to_mime.get(img.ext.lower(), "image/jpeg")
             item = epub.EpubItem(
-                uid=img.epub_id,
-                file_name=f"images/{img.epub_id}.{img.ext}",
-                media_type=mime,
-                content=img.image_bytes,
+                uid=img.epub_id, file_name=f"images/{img.epub_id}.{img.ext}",
+                media_type=mime, content=img.image_bytes,
             )
             book.add_item(item)
             image_items[img.epub_id] = item
 
-    # ── Build chapters (one per page) ────────────────────────────────────────
     chapters: List[epub.EpubHtml] = []
     spine = ["nav"]
 
     for page in structure.pages:
         direction = page.direction
         if writing_mode_override != "auto":
-            direction = writing_mode_override  # type: ignore
+            direction = writing_mode_override
 
         css_file = "style/vertical.css" if direction == "vertical" else "style/horizontal.css"
         chapter_id = f"page_{page.page_number + 1:04d}"
-
         body_html = _render_page_html(page, image_items)
 
-        # ── Guard: never write a truly empty body ────────────────────────────
-        # ebooklib raises "Document is empty" if every chapter has no content.
-        # Insert a non-breaking placeholder so the EPUB is always valid.
         if not body_html.strip():
             body_html = f'<p class="empty-page">[ page {page.page_number + 1} ]</p>'
 
@@ -205,71 +186,55 @@ def assemble_epub(
         chapters.append(chapter)
         spine.append(chapter)
 
-    # ── Guard: if no pages at all, add a single placeholder chapter ──────────
     if not chapters:
-        logger.warning("No pages in document structure — inserting placeholder chapter.")
+        logger.warning("No pages — inserting placeholder chapter.")
         placeholder = epub.EpubHtml(
-            title="Document",
-            file_name="chapters/placeholder.xhtml",
-            lang="zh",
+            title="Document", file_name="chapters/placeholder.xhtml", lang="zh",
             content="""<?xml version='1.0' encoding='utf-8'?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>Document</title>
 <link rel="stylesheet" type="text/css" href="../style/horizontal.css"/>
 </head>
-<body><p class="empty-page">[ No text content could be extracted from this PDF ]</p></body>
+<body><p class="empty-page">[ No text content could be extracted ]</p></body>
 </html>""",
         )
         book.add_item(placeholder)
         chapters.append(placeholder)
         spine.append(placeholder)
 
-    # ── Table of Contents ────────────────────────────────────────────────────
     toc_items = []
     for level, title, page_num in structure.toc:
         if page_num < len(chapters):
-            toc_items.append(
-                epub.Link(
-                    href=chapters[page_num].file_name,
-                    title=title,
-                    uid=f"toc_{page_num}",
-                )
-            )
-
+            toc_items.append(epub.Link(
+                href=chapters[page_num].file_name, title=title, uid=f"toc_{page_num}",
+            ))
     book.toc = toc_items if toc_items else (
         [epub.Link(href=chapters[0].file_name, title=structure.title or "Document", uid="toc_0")]
         if chapters else []
     )
 
-    # ── NCX and NAV ──────────────────────────────────────────────────────────
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())
-
     book.spine = spine
 
     epub.write_epub(str(output_path), book)
     logger.info(f"EPUB written: {output_path} ({output_path.stat().st_size / 1024:.1f} KB)")
 
 
-def _render_page_html(
-    page: StructuredPage,
-    image_items: dict,
-) -> str:
-    """Convert a StructuredPage into XHTML body content."""
+def _render_page_html(page: StructuredPage, image_items: dict) -> str:
     parts: List[str] = []
 
     if page.is_image_only:
         parts.append('<div class="image-only-page">')
         for img in page.images:
             if img.epub_id in image_items:
-                src  = f"../images/{img.epub_id}.{img.ext}"
+                src = f"../images/{img.epub_id}.{img.ext}"
                 parts.append(
                     f'<figure><img src="{src}" alt="{html_module.escape(img.alt_text)}"/></figure>'
                 )
         parts.append("</div>")
-        # If no images were actually added, return empty so the caller inserts placeholder
-        if len(parts) == 2:  # only the open/close div tags
+        if len(parts) == 2:
             return ""
         return "\n".join(parts)
 
@@ -281,35 +246,26 @@ def _render_page_html(
         if el.element_type == "heading":
             tag = f"h{min(el.level, 3)}"
             parts.append(f"<{tag}>{text_escaped}</{tag}>")
-
         elif el.element_type == "paragraph":
             if el.href:
                 inner = f'<a href="{html_module.escape(el.href)}">{text_escaped}</a>'
             else:
                 inner = text_escaped
             parts.append(f"<p>{inner}</p>")
-
         elif el.element_type == "list-item":
             parts.append(f"<ul><li>{text_escaped}</li></ul>")
-
         elif el.element_type == "footnote":
             parts.append(f'<aside class="footnote"><p>{text_escaped}</p></aside>')
-
         elif el.element_type == "page-number":
             parts.append(f'<span class="page-number">{text_escaped}</span>')
-
         elif el.element_type == "caption":
             parts.append(f"<figcaption>{text_escaped}</figcaption>")
-
         else:
             parts.append(f"<p>{text_escaped}</p>")
 
-    # Append images at end of page
     for img in page.images:
         if img.epub_id not in img_inserted and img.epub_id in image_items:
             src = f"../images/{img.epub_id}.{img.ext}"
-            parts.append(
-                f'<figure><img src="{src}" alt=""/></figure>'
-            )
+            parts.append(f'<figure><img src="{src}" alt=""/></figure>')
 
     return "\n".join(parts)
