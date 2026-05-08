@@ -1,15 +1,11 @@
 ocr:
-  engine: gemini              # gemini (only currently registered engine)
+  engine: gemini
   model_name: "gemini-2.5-flash"
-  # Paid-tier rate limit — acts as a safety cap, not a hard quota.
-  # Google's actual paid-tier RPM is 2000+; this is a local throttle
-  # to prevent runaway costs. Safe because monthly spend cap is set
-  # in Google AI Studio.
   rpm_limit: 100
   max_retries: 3
   request_timeout_s: 120
-  confidence_threshold: 0.7   # unused for Gemini but kept for OCREngine interface
-  dpi: 300                    # raised from 200 to improve OCR accuracy on scanned PDFs
+  confidence_threshold: 0.7
+  dpi: 300
 
 pipeline:
   max_pdf_size_mb: 100
@@ -19,7 +15,7 @@ pipeline:
   tmp_cleanup_on_complete: true
 
 epub:
-  default_writing_mode: auto  # auto | horizontal | vertical
+  default_writing_mode: auto
   embed_page_numbers: true
   chapter_per_page: true
 
