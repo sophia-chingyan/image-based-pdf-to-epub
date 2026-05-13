@@ -2,6 +2,7 @@ ocr:
   engine: gemini
   model_name: "gemini-2.5-flash"
   rpm_limit: 100
+  rpd_limit: 250
   max_retries: 3
   request_timeout_s: 120
   confidence_threshold: 0.7
