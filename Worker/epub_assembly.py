@@ -109,6 +109,28 @@ figcaption {
 """
 
 
+def _make_chapter_content(page_number: int, css_file: str, body_html: str) -> bytes:
+    """
+    Build a complete XHTML chapter and return it as UTF-8 bytes.
+
+    CRITICAL: ebooklib's get_body_content() only works when content is bytes.
+    Passing a str to EpubHtml(content=...) causes get_body_content() to return
+    b'', which makes lxml raise 'Document is empty' during epub.write_epub().
+    """
+    xhtml = f"""<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>Page {page_number}</title>
+  <link rel="stylesheet" type="text/css" href="../{css_file}"/>
+</head>
+<body>
+{body_html}
+</body>
+</html>"""
+    return xhtml.encode("utf-8")
+
+
 def assemble_epub(
     structure: DocumentStructure,
     output_path: Path,
@@ -170,17 +192,7 @@ def assemble_epub(
             title=f"Page {page.page_number + 1}",
             file_name=f"chapters/{chapter_id}.xhtml",
             lang="zh",
-            content=f"""<?xml version='1.0' encoding='utf-8'?>
-<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
-<head>
-  <title>Page {page.page_number + 1}</title>
-  <link rel="stylesheet" type="text/css" href="../{css_file}"/>
-</head>
-<body>
-{body_html}
-</body>
-</html>""",
+            content=_make_chapter_content(page.page_number + 1, css_file, body_html),
         )
         book.add_item(chapter)
         chapters.append(chapter)
@@ -190,14 +202,8 @@ def assemble_epub(
         logger.warning("No pages — inserting placeholder chapter.")
         placeholder = epub.EpubHtml(
             title="Document", file_name="chapters/placeholder.xhtml", lang="zh",
-            content="""<?xml version='1.0' encoding='utf-8'?>
-<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
-<head><title>Document</title>
-<link rel="stylesheet" type="text/css" href="../style/horizontal.css"/>
-</head>
-<body><p class="empty-page">[ No text content could be extracted ]</p></body>
-</html>""",
+            content=_make_chapter_content(0, "style/horizontal.css",
+                '<p class="empty-page">[ No text content could be extracted ]</p>'),
         )
         book.add_item(placeholder)
         chapters.append(placeholder)
