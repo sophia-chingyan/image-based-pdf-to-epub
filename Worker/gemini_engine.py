@@ -72,6 +72,37 @@ def _detect_lang_from_text(text: str) -> str:
     return "en"
 
 
+def _coerce_str(val) -> str:
+    """Safely coerce any value to a string (handles list, None, etc.)."""
+    if val is None:
+        return ""
+    if isinstance(val, list):
+        return str(val[0]) if val else ""
+    return str(val)
+
+
+def _coerce_bbox(val) -> list:
+    """Safely coerce bbox value to a 4-element list of numbers."""
+    if not val:
+        return [0, 0, 0, 0]
+    # Already a list of numbers
+    if isinstance(val, list):
+        if len(val) >= 4:
+            try:
+                return [float(v) for v in val[:4]]
+            except (TypeError, ValueError):
+                pass
+        return [0, 0, 0, 0]
+    # Dict like {"x0": ..., "y0": ..., "x1": ..., "y1": ...}
+    if isinstance(val, dict):
+        try:
+            return [float(val.get("x0", 0)), float(val.get("y0", 0)),
+                    float(val.get("x1", 0)), float(val.get("y1", 0))]
+        except (TypeError, ValueError):
+            return [0, 0, 0, 0]
+    return [0, 0, 0, 0]
+
+
 # ── Rate limiter ──────────────────────────────────────────────────────────────
 class RateLimiter:
     """
@@ -178,12 +209,12 @@ class GeminiOCREngine(OCREngine):
     def detect_language(self, page_image) -> str:
         """Run the page-level analysis and infer dominant language."""
         result = self._analyse_page(page_image)
-        all_text = "".join(b.get("text", "") for b in result.get("blocks", []))
+        all_text = "".join(_coerce_str(b.get("text")) for b in result.get("blocks", []))
         return _detect_lang_from_text(all_text)
 
     def detect_direction(self, page_image) -> TextDirection:
         result = self._analyse_page(page_image)
-        d = result.get("direction", "horizontal")
+        d = _coerce_str(result.get("direction", "horizontal")).lower()
         return "vertical" if d == "vertical" else "horizontal"
 
     def recognize(
@@ -194,15 +225,12 @@ class GeminiOCREngine(OCREngine):
         result = self._analyse_page(page_image)
         blocks: List[TextBlock] = []
         for b in result.get("blocks", []):
-            text = (b.get("text") or "").strip()
+            text = _coerce_str(b.get("text")).strip()
             if not text:
                 continue
-            bbox_arr = b.get("bbox") or [0, 0, 0, 0]
-            try:
-                x0, y0, x1, y1 = bbox_arr
-            except (ValueError, TypeError):
-                x0 = y0 = x1 = y1 = 0
-            bbox = BBox(float(x0), float(y0), float(x1), float(y1))
+            bbox_raw = _coerce_bbox(b.get("bbox"))
+            x0, y0, x1, y1 = bbox_raw
+            bbox = BBox(x0, y0, x1, y1)
             lang = _detect_lang_from_text(text)
             blocks.append(TextBlock(
                 text=text,
@@ -217,20 +245,23 @@ class GeminiOCREngine(OCREngine):
     def get_layout(self, page_image) -> List[LayoutBlock]:
         result = self._analyse_page(page_image)
         layout_blocks: List[LayoutBlock] = []
+
+        valid_types = {
+            "heading", "paragraph", "list-item", "footnote",
+            "page-number", "caption", "image"
+        }
+
         for b in result.get("blocks", []):
-            type_str = (b.get("type") or "").lower().strip()
-            block_type: LayoutType = type_str if type_str in {
-                "heading", "paragraph", "list-item", "footnote",
-                "page-number", "caption", "image"
-            } else "unknown"
-            bbox_arr = b.get("bbox") or [0, 0, 0, 0]
-            try:
-                x0, y0, x1, y1 = bbox_arr
-            except (ValueError, TypeError):
-                x0 = y0 = x1 = y1 = 0
+            # Safely coerce type to string before calling .lower()
+            raw_type = b.get("type")
+            type_str = _coerce_str(raw_type).lower().strip()
+            block_type: LayoutType = type_str if type_str in valid_types else "unknown"
+
+            bbox_raw = _coerce_bbox(b.get("bbox"))
+            x0, y0, x1, y1 = bbox_raw
             layout_blocks.append(LayoutBlock(
                 block_type=block_type,
-                bbox=BBox(float(x0), float(y0), float(x1), float(y1)),
+                bbox=BBox(x0, y0, x1, y1),
             ))
         return layout_blocks
 
@@ -301,7 +332,10 @@ class GeminiOCREngine(OCREngine):
                         OCR_PROMPT,
                     ],
                     config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
+                        # Do NOT force application/json — some SDK versions
+                        # return a parsed object instead of a string, which
+                        # breaks our text-based parsing. Let the model return
+                        # plain text and we'll parse it ourselves.
                         temperature=0.0,
                     ),
                 )
@@ -340,12 +374,14 @@ class GeminiOCREngine(OCREngine):
         """Tolerantly parse Gemini's JSON response."""
         if not text:
             return {"direction": "horizontal", "blocks": []}
+
         # Strip markdown fences if the model added any
         if text.startswith("```"):
             text = text.strip("`")
             if text.lower().startswith("json"):
                 text = text[4:]
             text = text.strip()
+
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
@@ -369,9 +405,20 @@ class GeminiOCREngine(OCREngine):
         if not isinstance(blocks, list):
             blocks = []
 
+        # Normalise each block defensively
+        clean_blocks = []
+        for b in blocks:
+            if not isinstance(b, dict):
+                continue
+            clean_blocks.append({
+                "text":  _coerce_str(b.get("text")),
+                "type":  _coerce_str(b.get("type")),
+                "bbox":  _coerce_bbox(b.get("bbox")),
+            })
+
         return {
-            "direction": data.get("direction", "horizontal"),
-            "blocks":    blocks,
+            "direction": _coerce_str(data.get("direction", "horizontal")),
+            "blocks":    clean_blocks,
         }
 
     def _assert_loaded(self):
