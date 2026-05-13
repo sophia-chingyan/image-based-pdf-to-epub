@@ -123,6 +123,20 @@ def assemble_clean_pdf(
     """Re-render OCR text into a cleanly typeset PDF using ReportLab."""
     logger.info(f"Assembling clean PDF: {output_path}")
 
+    try:
+        _assemble_clean_pdf_reportlab(structure, output_path)
+    except Exception as e:
+        # Last-resort fallback: minimal single-paragraph document via PyMuPDF
+        logger.error(f"ReportLab build failed ({e}), writing minimal fallback PDF")
+        _write_minimal_pdf(output_path, structure.title or "Untitled",
+                           f"PDF assembly error: {e}")
+
+
+def _assemble_clean_pdf_reportlab(
+    structure: DocumentStructure,
+    output_path: Path,
+) -> None:
+    """Internal ReportLab-based clean PDF builder."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import mm
@@ -133,7 +147,6 @@ def assemble_clean_pdf(
     )
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-    from reportlab.pdfbase.ttfonts import TTFont
 
     # ── Font registration: try CJK CID fonts, fall back to Helvetica ─────────
     cjk_font = _register_best_font(pdfmetrics, UnicodeCIDFont)
@@ -218,12 +231,26 @@ def assemble_clean_pdf(
             story.extend(page_items)
             story.append(PageBreak())
 
-    # ── Ensure story is never empty (ReportLab raises "Document is empty") ────
+    # ── Remove trailing PageBreak — ReportLab raises "Document is empty" ─────
+    # when the story ends with a PageBreak and no content follows it.
+    while story and isinstance(story[-1], PageBreak):
+        story.pop()
+
+    # ── Ensure story has at least one renderable flowable ────────────────────
     if not story:
-        story.append(Paragraph("[ No text content could be extracted ]", s_body))
+        # Completely empty — no title, no content at all
+        story.append(Paragraph(
+            _esc(structure.title or "Untitled"), s_title
+        ))
+        story.append(Spacer(1, 10 * mm))
+        story.append(Paragraph(
+            "[ No text content could be extracted from this PDF ]", s_body
+        ))
     elif not has_content:
-        # Story may only contain title/spacer/pagebreak — add a note
-        story.append(Paragraph("[ No body text was extracted from this PDF ]", s_body))
+        # Story has title page but no body content — append a note
+        story.append(Paragraph(
+            "[ No body text was extracted from this PDF ]", s_body
+        ))
 
     # ── Build ─────────────────────────────────────────────────────────────────
     doc = SimpleDocTemplate(
@@ -235,14 +262,7 @@ def assemble_clean_pdf(
         author=structure.author or "",
     )
 
-    try:
-        doc.build(story)
-    except Exception as e:
-        # Last-resort fallback: minimal single-paragraph document
-        logger.error(f"ReportLab build failed ({e}), writing minimal fallback PDF")
-        _write_minimal_pdf(output_path, structure.title or "Untitled",
-                           f"PDF assembly error: {e}")
-
+    doc.build(story)
     logger.info(f"Clean PDF written: {output_path} ({output_path.stat().st_size/1024:.1f} KB)")
 
 
@@ -276,6 +296,7 @@ def _write_minimal_pdf(output_path: Path, title: str, message: str) -> None:
     """Write a bare-minimum valid PDF using only PyMuPDF (no ReportLab)."""
     doc = fitz.open()
     page = doc.new_page()
+    # Use a safe font for title — PyMuPDF's default handles basic Latin
     page.insert_text((72, 100), title[:80],   fontsize=16)
     page.insert_text((72, 140), message[:200], fontsize=10)
     doc.save(str(output_path))
