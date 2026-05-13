@@ -26,7 +26,7 @@ for d in (UPLOAD_DIR, OUTPUT_DIR, TMPWORK_DIR):
 DPI          = CFG["ocr"]["dpi"]
 BATCH_SIZE   = CFG["pipeline"]["page_batch_size"]
 WRITING_MODE = CFG["epub"]["default_writing_mode"]
-CLEANUP      = CFG["pipeline"]["tmp_cleanup_on_complete"]
+CLEANUP      = CFG["pipeline"].get("tmp_cleanup_on_complete", True)
 
 
 def update_job(r, job_id: str, **kw):
@@ -97,33 +97,63 @@ def run_pipeline(r, job: dict, engine) -> None:
             title=ingested.meta.title, author=ingested.meta.author,
             pages=structured_pages, toc=toc)
 
-        # ── Assemble outputs ─────────────────────────────────────────────────
+        # ── Assemble outputs (per-format error isolation) ────────────────────
         output_paths = {}
+        format_errors = []
         n = len(output_formats)
 
         if "epub" in output_formats:
             i = output_formats.index("epub")
             update_job(r, job_id, message="Assembling EPUB…", progress=87 + int(i/n*10))
-            p = OUTPUT_DIR / f"{job_id}.epub"
-            assemble_epub(structure, p, writing_mode_override=WRITING_MODE)
-            output_paths["epub_path"] = str(p)
+            try:
+                p = OUTPUT_DIR / f"{job_id}.epub"
+                assemble_epub(structure, p, writing_mode_override=WRITING_MODE)
+                output_paths["epub_path"] = str(p)
+            except Exception as e:
+                logger.error(f"EPUB assembly failed for {job_id}: {e}\n{traceback.format_exc()}")
+                format_errors.append(f"EPUB: {e}")
 
         if "textlayer" in output_formats:
             i = output_formats.index("textlayer")
             update_job(r, job_id, message="Building searchable PDF…", progress=87 + int(i/n*10))
-            p = OUTPUT_DIR / f"{job_id}_searchable.pdf"
-            assemble_textlayer_pdf(structure, pdf_path, p)
-            output_paths["textlayer_path"] = str(p)
+            try:
+                p = OUTPUT_DIR / f"{job_id}_searchable.pdf"
+                assemble_textlayer_pdf(structure, pdf_path, p)
+                output_paths["textlayer_path"] = str(p)
+            except Exception as e:
+                logger.error(f"Text-layer PDF assembly failed for {job_id}: {e}\n{traceback.format_exc()}")
+                format_errors.append(f"Searchable PDF: {e}")
 
         if "clean" in output_formats:
             i = output_formats.index("clean")
             update_job(r, job_id, message="Building clean PDF…", progress=87 + int(i/n*10))
-            p = OUTPUT_DIR / f"{job_id}_clean.pdf"
-            assemble_clean_pdf(structure, p)
-            output_paths["clean_pdf_path"] = str(p)
+            try:
+                p = OUTPUT_DIR / f"{job_id}_clean.pdf"
+                assemble_clean_pdf(structure, p)
+                output_paths["clean_pdf_path"] = str(p)
+            except Exception as e:
+                logger.error(f"Clean PDF assembly failed for {job_id}: {e}\n{traceback.format_exc()}")
+                format_errors.append(f"Clean PDF: {e}")
 
-        update_job(r, job_id, status="done", message="Complete", progress=100, **output_paths)
-        logger.info(f"Job {job_id} done: {list(output_paths.keys())}")
+        # ── Determine final status ───────────────────────────────────────────
+        if output_paths:
+            # At least one format succeeded
+            if format_errors:
+                error_summary = "; ".join(format_errors)
+                update_job(r, job_id, status="done",
+                           message=f"Partial success ({len(format_errors)} format(s) failed)",
+                           progress=100, error=error_summary, **output_paths)
+                logger.warning(f"Job {job_id} partial: {error_summary}")
+            else:
+                update_job(r, job_id, status="done", message="Complete",
+                           progress=100, **output_paths)
+                logger.info(f"Job {job_id} done: {list(output_paths.keys())}")
+        else:
+            # All formats failed
+            error_summary = "; ".join(format_errors) if format_errors else "No output produced"
+            update_job(r, job_id, status="failed",
+                       message="Conversion failed.", error=error_summary)
+            logger.error(f"Job {job_id} failed: all formats errored: {error_summary}")
 
     except Exception as exc:
         logger.error(f"Job {job_id} failed: {exc}\n{traceback.format_exc()}")

@@ -120,35 +120,46 @@ def assemble_clean_pdf(
     structure: DocumentStructure,
     output_path: Path,
 ) -> None:
-    """Re-render OCR text into a cleanly typeset PDF using ReportLab."""
+    """
+    Re-render OCR text into a cleanly typeset PDF.
+
+    Tries ReportLab first for professional output. If that fails for ANY
+    reason (empty document, font issues, XML parsing errors), falls back
+    to PyMuPDF-based rendering which always succeeds.
+    """
     logger.info(f"Assembling clean PDF: {output_path}")
 
     try:
         _assemble_clean_pdf_reportlab(structure, output_path)
+        logger.info(f"Clean PDF written (ReportLab): {output_path} "
+                     f"({output_path.stat().st_size/1024:.1f} KB)")
     except Exception as e:
-        # Last-resort fallback: minimal single-paragraph document via PyMuPDF
-        logger.error(f"ReportLab build failed ({e}), writing minimal fallback PDF")
-        _write_minimal_pdf(output_path, structure.title or "Untitled",
-                           f"PDF assembly error: {e}")
+        logger.warning(f"ReportLab build failed ({e}), falling back to PyMuPDF renderer")
+        try:
+            _assemble_clean_pdf_pymupdf(structure, output_path)
+            logger.info(f"Clean PDF written (PyMuPDF fallback): {output_path} "
+                         f"({output_path.stat().st_size/1024:.1f} KB)")
+        except Exception as e2:
+            logger.error(f"PyMuPDF fallback also failed ({e2}), writing minimal PDF")
+            _write_minimal_pdf(output_path, structure.title or "Untitled",
+                               f"PDF assembly error: {e}")
 
 
 def _assemble_clean_pdf_reportlab(
     structure: DocumentStructure,
     output_path: Path,
 ) -> None:
-    """Internal ReportLab-based clean PDF builder."""
+    """ReportLab-based clean PDF. May raise on empty/problematic content."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import mm
     from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image as RLImage,
-        KeepTogether,
     )
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 
-    # ── Font registration: try CJK CID fonts, fall back to Helvetica ─────────
     cjk_font = _register_best_font(pdfmetrics, UnicodeCIDFont)
     logger.info(f"Clean PDF using font: {cjk_font}")
 
@@ -171,23 +182,14 @@ def _assemble_clean_pdf_reportlab(
     s_auth  = _style("A", fontSize=12, leading=18, alignment=TA_CENTER)
     hs = {1: s_h1, 2: s_h2, 3: s_h3}
 
-    story: list = []
+    # ── Collect ALL renderable paragraphs first, then build story ────────────
+    # This avoids the "Document is empty" error by ensuring we have real
+    # content before adding any PageBreaks.
+    content_paragraphs: list = []   # list of flowable-lists, one per page
 
-    # ── Title page ────────────────────────────────────────────────────────────
-    if structure.title:
-        story.append(Spacer(1, 40 * mm))
-        story.append(Paragraph(_esc(structure.title), s_title))
-        if structure.author:
-            story.append(Spacer(1, 5 * mm))
-            story.append(Paragraph(_esc(structure.author), s_auth))
-        story.append(PageBreak())
-
-    # ── Content pages ─────────────────────────────────────────────────────────
-    has_content = False
     for page in structure.pages:
         page_items: list = []
 
-        # Embedded images
         for img in page.images:
             if img.image_bytes:
                 try:
@@ -196,11 +198,9 @@ def _assemble_clean_pdf_reportlab(
                                 width=150 * mm, height=200 * mm, kind="proportional")
                     )
                     page_items.append(Spacer(1, 3 * mm))
-                    has_content = True
                 except Exception as e:
                     logger.warning(f"Could not embed image in clean PDF: {e}")
 
-        # Text elements
         for el in page.elements:
             t = el.text.strip()
             if not t:
@@ -214,7 +214,7 @@ def _assemble_clean_pdf_reportlab(
                         safe = f'<a href="{_esc(el.href)}" color="blue">{safe}</a>'
                     page_items.append(Paragraph(safe, s_body))
                 elif el.element_type == "list-item":
-                    page_items.append(Paragraph(f"• {safe}", s_li))
+                    page_items.append(Paragraph(f"\u2022 {safe}", s_li))
                 elif el.element_type == "footnote":
                     page_items.append(Paragraph(safe, s_fn))
                 elif el.element_type == "page-number":
@@ -223,22 +223,41 @@ def _assemble_clean_pdf_reportlab(
                     page_items.append(Paragraph(safe, s_cap))
                 else:
                     page_items.append(Paragraph(safe, s_body))
-                has_content = True
             except Exception as e:
-                logger.warning(f"Skipping element due to error: {e} — text: {t[:50]!r}")
+                logger.warning(f"Skipping element: {e} — text: {t[:50]!r}")
 
         if page_items:
-            story.extend(page_items)
+            content_paragraphs.append(page_items)
+
+    # ── Build story: title page + content pages ──────────────────────────────
+    story: list = []
+
+    if structure.title:
+        story.append(Spacer(1, 40 * mm))
+        story.append(Paragraph(_esc(structure.title), s_title))
+        if structure.author:
+            story.append(Spacer(1, 5 * mm))
+            story.append(Paragraph(_esc(structure.author), s_auth))
+
+    if content_paragraphs:
+        # Add page break after title only if there's content following
+        if story:
             story.append(PageBreak())
+        for i, page_items in enumerate(content_paragraphs):
+            story.extend(page_items)
+            # Page break between content pages, but NOT after the last one
+            if i < len(content_paragraphs) - 1:
+                story.append(PageBreak())
+    else:
+        # No content at all — add a placeholder
+        if story:
+            story.append(Spacer(1, 10 * mm))
+        story.append(Paragraph(
+            "[ No body text was extracted from this PDF ]", s_body
+        ))
 
-    # ── Remove trailing PageBreak — ReportLab raises "Document is empty" ─────
-    # when the story ends with a PageBreak and no content follows it.
-    while story and isinstance(story[-1], PageBreak):
-        story.pop()
-
-    # ── Ensure story has at least one renderable flowable ────────────────────
+    # ── Final safety: ensure story is never empty ────────────────────────────
     if not story:
-        # Completely empty — no title, no content at all
         story.append(Paragraph(
             _esc(structure.title or "Untitled"), s_title
         ))
@@ -246,13 +265,7 @@ def _assemble_clean_pdf_reportlab(
         story.append(Paragraph(
             "[ No text content could be extracted from this PDF ]", s_body
         ))
-    elif not has_content:
-        # Story has title page but no body content — append a note
-        story.append(Paragraph(
-            "[ No body text was extracted from this PDF ]", s_body
-        ))
 
-    # ── Build ─────────────────────────────────────────────────────────────────
     doc = SimpleDocTemplate(
         str(output_path),
         pagesize=A4,
@@ -261,9 +274,140 @@ def _assemble_clean_pdf_reportlab(
         title=structure.title or "Untitled",
         author=structure.author or "",
     )
-
     doc.build(story)
-    logger.info(f"Clean PDF written: {output_path} ({output_path.stat().st_size/1024:.1f} KB)")
+
+
+def _assemble_clean_pdf_pymupdf(
+    structure: DocumentStructure,
+    output_path: Path,
+) -> None:
+    """
+    Fallback clean PDF renderer using only PyMuPDF.
+    Less pretty than ReportLab but handles CJK text reliably and never
+    throws "Document is empty".
+    """
+    doc = fitz.open()
+    font = fitz.Font("china-s")
+
+    title = structure.title or "Untitled"
+    author = structure.author or ""
+
+    # ── Title page ────────────────────────────────────────────────────────────
+    page = doc.new_page(width=595, height=842)  # A4 in points
+    try:
+        tw = fitz.TextWriter(page.rect)
+        tw.append(pos=(72, 200), text=title[:100], font=font, fontsize=20)
+        if author:
+            tw.append(pos=(72, 240), text=author[:100], font=font, fontsize=14)
+        tw.write_text(page)
+    except Exception:
+        page.insert_text((72, 200), title[:100], fontsize=20)
+        if author:
+            page.insert_text((72, 240), author[:100], fontsize=14)
+
+    # ── Content pages ─────────────────────────────────────────────────────────
+    has_any_content = False
+
+    for struct_page in structure.pages:
+        if not struct_page.elements and not struct_page.images:
+            continue
+
+        page = doc.new_page(width=595, height=842)
+        y_cursor = 60.0
+        margin_left = 50.0
+        max_width = 495.0  # 595 - 2*50
+
+        for el in struct_page.elements:
+            text = el.text.strip()
+            if not text:
+                continue
+            has_any_content = True
+
+            if el.element_type == "heading":
+                fs = 16 if el.level == 1 else 14 if el.level == 2 else 12
+                y_cursor += 8
+            elif el.element_type == "footnote":
+                fs = 9
+            elif el.element_type == "page-number":
+                fs = 8
+            elif el.element_type == "caption":
+                fs = 10
+            else:
+                fs = 11
+
+            lines = _wrap_text_fitz(text, font, fs, max_width)
+            for line in lines:
+                if y_cursor > 790:
+                    page = doc.new_page(width=595, height=842)
+                    y_cursor = 60.0
+                try:
+                    tw = fitz.TextWriter(page.rect)
+                    tw.append(pos=(margin_left, y_cursor), text=line,
+                              font=font, fontsize=fs)
+                    tw.write_text(page)
+                except Exception:
+                    try:
+                        page.insert_text((margin_left, y_cursor),
+                                         line[:200], fontsize=fs)
+                    except Exception:
+                        pass
+                y_cursor += fs * 1.5
+            y_cursor += 4
+
+        for img in struct_page.images:
+            if not img.image_bytes:
+                continue
+            has_any_content = True
+            try:
+                if y_cursor > 600:
+                    page = doc.new_page(width=595, height=842)
+                    y_cursor = 60.0
+                img_rect = fitz.Rect(margin_left, y_cursor,
+                                     margin_left + 400, y_cursor + 300)
+                page.insert_image(img_rect, stream=img.image_bytes)
+                y_cursor += 310
+            except Exception as e:
+                logger.warning(f"Could not embed image in PyMuPDF PDF: {e}")
+
+    if not has_any_content:
+        title_page = doc[0]
+        try:
+            tw = fitz.TextWriter(title_page.rect)
+            tw.append(pos=(72, 300),
+                      text="[ No text content could be extracted ]",
+                      font=font, fontsize=12)
+            tw.write_text(title_page)
+        except Exception:
+            title_page.insert_text((72, 300),
+                                    "[ No text content could be extracted ]",
+                                    fontsize=12)
+
+    doc.save(str(output_path), garbage=4, deflate=True)
+    doc.close()
+
+
+def _wrap_text_fitz(text: str, font, fontsize: float, max_width: float) -> List[str]:
+    """Wrap text to fit within max_width using PyMuPDF font metrics."""
+    lines = []
+    for raw_line in text.split("\n"):
+        if not raw_line.strip():
+            lines.append("")
+            continue
+        current = ""
+        for char in raw_line:
+            test = current + char
+            try:
+                w = font.text_length(test, fontsize=fontsize)
+            except Exception:
+                w = len(test) * fontsize * 0.6
+            if w > max_width and current:
+                lines.append(current)
+                current = char
+            else:
+                current = test
+        if current:
+            lines.append(current)
+    return lines if lines else [""]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -279,7 +423,6 @@ def _register_best_font(pdfmetrics, UnicodeCIDFont) -> str:
             return fname
         except Exception:
             continue
-    # Fall back to built-in Helvetica (no CJK glyphs but won't crash)
     return "Helvetica"
 
 
@@ -293,10 +436,9 @@ def _esc(text: str) -> str:
 
 
 def _write_minimal_pdf(output_path: Path, title: str, message: str) -> None:
-    """Write a bare-minimum valid PDF using only PyMuPDF (no ReportLab)."""
+    """Write a bare-minimum valid PDF using only PyMuPDF."""
     doc = fitz.open()
     page = doc.new_page()
-    # Use a safe font for title — PyMuPDF's default handles basic Latin
     page.insert_text((72, 100), title[:80],   fontsize=16)
     page.insert_text((72, 140), message[:200], fontsize=10)
     doc.save(str(output_path))
