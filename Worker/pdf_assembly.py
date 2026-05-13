@@ -128,89 +128,155 @@ def assemble_clean_pdf(
     from reportlab.lib.units import mm
     from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image as RLImage
+        SimpleDocTemplate, Paragraph, Spacer, PageBreak, Image as RLImage,
+        KeepTogether,
     )
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.pdfbase.ttfonts import TTFont
 
-    # Register CJK font
-    cjk_font = "Helvetica"
-    for fname in ("STSong-Light", "MSung-Light"):
-        try:
-            pdfmetrics.registerFont(UnicodeCIDFont(fname))
-            cjk_font = fname
-            break
-        except Exception:
-            continue
+    # ── Font registration: try CJK CID fonts, fall back to Helvetica ─────────
+    cjk_font = _register_best_font(pdfmetrics, UnicodeCIDFont)
+    logger.info(f"Clean PDF using font: {cjk_font}")
 
     styles = getSampleStyleSheet()
-    s_title = ParagraphStyle("T", parent=styles["Title"], fontName=cjk_font, fontSize=18, leading=24, spaceAfter=12, alignment=TA_CENTER)
-    s_h1 = ParagraphStyle("H1", parent=styles["Heading1"], fontName=cjk_font, fontSize=16, leading=22, spaceBefore=14, spaceAfter=8)
-    s_h2 = ParagraphStyle("H2", parent=styles["Heading2"], fontName=cjk_font, fontSize=14, leading=19, spaceBefore=10, spaceAfter=6)
-    s_h3 = ParagraphStyle("H3", parent=styles["Heading3"], fontName=cjk_font, fontSize=12, leading=17, spaceBefore=8, spaceAfter=4)
-    s_body = ParagraphStyle("B", parent=styles["Normal"], fontName=cjk_font, fontSize=11, leading=18, firstLineIndent=22, spaceBefore=2, spaceAfter=2, alignment=TA_JUSTIFY)
-    s_fn = ParagraphStyle("FN", parent=styles["Normal"], fontName=cjk_font, fontSize=9, leading=13, textColor="#555555")
-    s_pn = ParagraphStyle("PN", parent=styles["Normal"], fontName=cjk_font, fontSize=9, leading=12, textColor="#888888", alignment=TA_CENTER)
-    s_cap = ParagraphStyle("C", parent=styles["Normal"], fontName=cjk_font, fontSize=10, leading=14, textColor="#666666", alignment=TA_CENTER)
-    s_li = ParagraphStyle("LI", parent=styles["Normal"], fontName=cjk_font, fontSize=11, leading=18, leftIndent=20, bulletIndent=10)
+
+    def _style(name, parent_name="Normal", **kw):
+        parent = styles.get(parent_name, styles["Normal"])
+        return ParagraphStyle(name, parent=parent, fontName=cjk_font, **kw)
+
+    s_title = _style("T", "Title",   fontSize=18, leading=24, spaceAfter=12, alignment=TA_CENTER)
+    s_h1    = _style("H1","Heading1",fontSize=16, leading=22, spaceBefore=14, spaceAfter=8)
+    s_h2    = _style("H2","Heading2",fontSize=14, leading=19, spaceBefore=10, spaceAfter=6)
+    s_h3    = _style("H3","Heading3",fontSize=12, leading=17, spaceBefore=8,  spaceAfter=4)
+    s_body  = _style("B", fontSize=11, leading=18, firstLineIndent=22,
+                     spaceBefore=2, spaceAfter=2, alignment=TA_JUSTIFY)
+    s_fn    = _style("FN",fontSize=9,  leading=13, textColor="#555555")
+    s_pn    = _style("PN",fontSize=9,  leading=12, textColor="#888888", alignment=TA_CENTER)
+    s_cap   = _style("C", fontSize=10, leading=14, textColor="#666666", alignment=TA_CENTER)
+    s_li    = _style("LI",fontSize=11, leading=18, leftIndent=20, bulletIndent=10)
+    s_auth  = _style("A", fontSize=12, leading=18, alignment=TA_CENTER)
     hs = {1: s_h1, 2: s_h2, 3: s_h3}
 
-    story = []
+    story: list = []
+
+    # ── Title page ────────────────────────────────────────────────────────────
     if structure.title:
-        story.append(Spacer(1, 40*mm))
+        story.append(Spacer(1, 40 * mm))
         story.append(Paragraph(_esc(structure.title), s_title))
         if structure.author:
-            s_auth = ParagraphStyle("A", parent=s_body, alignment=TA_CENTER, fontSize=12)
-            story.append(Spacer(1, 5*mm))
+            story.append(Spacer(1, 5 * mm))
             story.append(Paragraph(_esc(structure.author), s_auth))
         story.append(PageBreak())
 
+    # ── Content pages ─────────────────────────────────────────────────────────
     has_content = False
     for page in structure.pages:
-        page_has = False
+        page_items: list = []
+
+        # Embedded images
         for img in page.images:
             if img.image_bytes:
                 try:
-                    story.append(RLImage(io.BytesIO(img.image_bytes), width=150*mm, height=200*mm, kind="proportional"))
-                    story.append(Spacer(1, 3*mm))
-                    page_has = True
-                except Exception:
-                    pass
+                    page_items.append(
+                        RLImage(io.BytesIO(img.image_bytes),
+                                width=150 * mm, height=200 * mm, kind="proportional")
+                    )
+                    page_items.append(Spacer(1, 3 * mm))
+                    has_content = True
+                except Exception as e:
+                    logger.warning(f"Could not embed image in clean PDF: {e}")
+
+        # Text elements
         for el in page.elements:
             t = el.text.strip()
             if not t:
                 continue
             safe = _esc(t)
-            page_has = True
-            if el.element_type == "heading":
-                story.append(Paragraph(safe, hs.get(min(el.level, 3), s_h3)))
-            elif el.element_type == "paragraph":
-                if el.href:
-                    safe = f'<a href="{_esc(el.href)}" color="blue">{safe}</a>'
-                story.append(Paragraph(safe, s_body))
-            elif el.element_type == "list-item":
-                story.append(Paragraph(f"• {safe}", s_li))
-            elif el.element_type == "footnote":
-                story.append(Paragraph(safe, s_fn))
-            elif el.element_type == "page-number":
-                story.append(Paragraph(safe, s_pn))
-            elif el.element_type == "caption":
-                story.append(Paragraph(safe, s_cap))
-            else:
-                story.append(Paragraph(safe, s_body))
-        if page_has:
-            has_content = True
+            try:
+                if el.element_type == "heading":
+                    page_items.append(Paragraph(safe, hs.get(min(el.level, 3), s_h3)))
+                elif el.element_type == "paragraph":
+                    if el.href:
+                        safe = f'<a href="{_esc(el.href)}" color="blue">{safe}</a>'
+                    page_items.append(Paragraph(safe, s_body))
+                elif el.element_type == "list-item":
+                    page_items.append(Paragraph(f"• {safe}", s_li))
+                elif el.element_type == "footnote":
+                    page_items.append(Paragraph(safe, s_fn))
+                elif el.element_type == "page-number":
+                    page_items.append(Paragraph(safe, s_pn))
+                elif el.element_type == "caption":
+                    page_items.append(Paragraph(safe, s_cap))
+                else:
+                    page_items.append(Paragraph(safe, s_body))
+                has_content = True
+            except Exception as e:
+                logger.warning(f"Skipping element due to error: {e} — text: {t[:50]!r}")
+
+        if page_items:
+            story.extend(page_items)
             story.append(PageBreak())
 
-    if not has_content:
+    # ── Ensure story is never empty (ReportLab raises "Document is empty") ────
+    if not story:
         story.append(Paragraph("[ No text content could be extracted ]", s_body))
+    elif not has_content:
+        # Story may only contain title/spacer/pagebreak — add a note
+        story.append(Paragraph("[ No body text was extracted from this PDF ]", s_body))
 
-    doc = SimpleDocTemplate(str(output_path), pagesize=A4,
-        leftMargin=25*mm, rightMargin=25*mm, topMargin=20*mm, bottomMargin=20*mm,
-        title=structure.title or "Untitled", author=structure.author or "")
-    doc.build(story)
+    # ── Build ─────────────────────────────────────────────────────────────────
+    doc = SimpleDocTemplate(
+        str(output_path),
+        pagesize=A4,
+        leftMargin=25 * mm, rightMargin=25 * mm,
+        topMargin=20 * mm, bottomMargin=20 * mm,
+        title=structure.title or "Untitled",
+        author=structure.author or "",
+    )
+
+    try:
+        doc.build(story)
+    except Exception as e:
+        # Last-resort fallback: minimal single-paragraph document
+        logger.error(f"ReportLab build failed ({e}), writing minimal fallback PDF")
+        _write_minimal_pdf(output_path, structure.title or "Untitled",
+                           f"PDF assembly error: {e}")
+
     logger.info(f"Clean PDF written: {output_path} ({output_path.stat().st_size/1024:.1f} KB)")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _register_best_font(pdfmetrics, UnicodeCIDFont) -> str:
+    """Try CJK CID fonts in order; return the name of the first that works."""
+    candidates = ["STSong-Light", "MSung-Light", "HeiseiMin-W3", "HYSMyeongJo-Medium"]
+    for fname in candidates:
+        try:
+            pdfmetrics.registerFont(UnicodeCIDFont(fname))
+            return fname
+        except Exception:
+            continue
+    # Fall back to built-in Helvetica (no CJK glyphs but won't crash)
+    return "Helvetica"
+
+
 def _esc(text: str) -> str:
-    return text.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;").replace("'","&apos;")
+    return (text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&apos;"))
+
+
+def _write_minimal_pdf(output_path: Path, title: str, message: str) -> None:
+    """Write a bare-minimum valid PDF using only PyMuPDF (no ReportLab)."""
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), title[:80],   fontsize=16)
+    page.insert_text((72, 140), message[:200], fontsize=10)
+    doc.save(str(output_path))
+    doc.close()
