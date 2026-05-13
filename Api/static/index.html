@@ -8,245 +8,74 @@
   <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;600;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
   <style>
     :root {
-      --ink:      #1a1614;
-      --paper:    #f5f0e8;
-      --cream:    #fffdf8;
-      --red:      #c0392b;
-      --red-dim:  #8b2a1f;
-      --green:    #27624a;
-      --amber:    #c07000;
-      --muted:    #7a6e65;
-      --border:   #d4c9b8;
+      --ink:#1a1614;--paper:#f5f0e8;--cream:#fffdf8;--red:#c0392b;--red-dim:#8b2a1f;
+      --green:#27624a;--amber:#c07000;--muted:#7a6e65;--border:#d4c9b8;
     }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{min-height:100vh;background:var(--paper);color:var(--ink);font-family:'Shippori Mincho',serif}
+    body::before{content:'';position:fixed;inset:0;background-image:repeating-linear-gradient(90deg,transparent,transparent 80px,rgba(0,0,0,.03) 80px,rgba(0,0,0,.03) 81px);pointer-events:none;z-index:0}
+    .container{position:relative;z-index:1;max-width:860px;margin:0 auto;padding:2rem 1.5rem 4rem}
+    header{display:flex;align-items:baseline;justify-content:space-between;padding:2rem 0 1.5rem;border-bottom:1px solid var(--border);margin-bottom:2rem}
+    .brand{display:flex;align-items:baseline;gap:.75rem}
+    .brand-mark{font-size:2.2rem;color:var(--red);line-height:1}
+    .brand-title{font-size:1.15rem;font-weight:800;letter-spacing:.03em}
+    .brand-sub{font-family:'DM Mono',monospace;font-size:.68rem;font-weight:300;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-left:.25rem}
+    .logout-btn{font-family:'DM Mono',monospace;font-size:.72rem;color:var(--muted);text-decoration:none;letter-spacing:.08em;border-bottom:1px solid transparent;transition:color .2s,border-color .2s}
+    .logout-btn:hover{color:var(--red);border-color:var(--red)}
+    .upload-section{margin-bottom:2.5rem}
+    .section-label{font-family:'DM Mono',monospace;font-size:.68rem;font-weight:500;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:1rem;display:flex;align-items:center;gap:.75rem}
+    .section-label::after{content:'';flex:1;height:1px;background:var(--border)}
+    .drop-zone{border:2px dashed var(--border);background:var(--cream);padding:3rem 2rem;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;position:relative}
+    .drop-zone:hover,.drop-zone.drag-over{border-color:var(--red);background:#fff9f4}
+    .drop-zone input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+    .drop-icon{font-size:2.5rem;color:var(--border);margin-bottom:1rem;transition:color .2s}
+    .drop-zone:hover .drop-icon,.drop-zone.drag-over .drop-icon{color:var(--red)}
+    .drop-text{font-size:1rem;margin-bottom:.4rem}
+    .drop-meta{font-family:'DM Mono',monospace;font-size:.7rem;color:var(--muted);letter-spacing:.06em}
 
-    body {
-      min-height: 100vh;
-      background: var(--paper);
-      color: var(--ink);
-      font-family: 'Shippori Mincho', serif;
-    }
+    /* ── Format picker ── */
+    .format-picker{display:flex;gap:1rem;margin-top:1.2rem;justify-content:center;flex-wrap:wrap}
+    .format-option{display:flex;align-items:center;gap:.4rem;font-family:'DM Mono',monospace;font-size:.75rem;color:var(--ink);cursor:pointer;user-select:none}
+    .format-option input[type="checkbox"]{accent-color:var(--red);width:15px;height:15px;cursor:pointer}
+    .format-desc{font-size:.62rem;color:var(--muted);display:block;margin-left:19px;margin-top:1px}
 
-    body::before {
-      content: '';
-      position: fixed; inset: 0;
-      background-image: repeating-linear-gradient(
-        90deg, transparent, transparent 80px,
-        rgba(0,0,0,0.03) 80px, rgba(0,0,0,0.03) 81px
-      );
-      pointer-events: none; z-index: 0;
-    }
-
-    .container {
-      position: relative; z-index: 1;
-      max-width: 860px; margin: 0 auto;
-      padding: 2rem 1.5rem 4rem;
-    }
-
-    header {
-      display: flex; align-items: baseline; justify-content: space-between;
-      padding: 2rem 0 1.5rem;
-      border-bottom: 1px solid var(--border);
-      margin-bottom: 2rem;
-    }
-    .brand { display: flex; align-items: baseline; gap: 0.75rem; }
-    .brand-mark { font-size: 2.2rem; color: var(--red); line-height: 1; }
-    .brand-title { font-size: 1.15rem; font-weight: 800; letter-spacing: 0.03em; }
-    .brand-sub {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.68rem; font-weight: 300;
-      color: var(--muted);
-      letter-spacing: 0.1em; text-transform: uppercase;
-      margin-left: 0.25rem;
-    }
-    .logout-btn {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.72rem; color: var(--muted);
-      text-decoration: none;
-      letter-spacing: 0.08em;
-      border-bottom: 1px solid transparent;
-      transition: color 0.2s, border-color 0.2s;
-    }
-    .logout-btn:hover { color: var(--red); border-color: var(--red); }
-
-    .upload-section { margin-bottom: 2.5rem; }
-
-    .section-label {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.68rem; font-weight: 500;
-      letter-spacing: 0.15em; text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 1rem;
-      display: flex; align-items: center; gap: 0.75rem;
-    }
-    .section-label::after {
-      content: ''; flex: 1; height: 1px; background: var(--border);
-    }
-
-    .drop-zone {
-      border: 2px dashed var(--border);
-      background: var(--cream);
-      padding: 3rem 2rem;
-      text-align: center;
-      cursor: pointer;
-      transition: border-color 0.2s, background 0.2s;
-      position: relative;
-    }
-    .drop-zone:hover, .drop-zone.drag-over {
-      border-color: var(--red); background: #fff9f4;
-    }
-    .drop-zone input[type="file"] {
-      position: absolute; inset: 0;
-      opacity: 0; cursor: pointer;
-      width: 100%; height: 100%;
-    }
-    .drop-icon {
-      font-size: 2.5rem; color: var(--border);
-      margin-bottom: 1rem; transition: color 0.2s;
-    }
-    .drop-zone:hover .drop-icon, .drop-zone.drag-over .drop-icon { color: var(--red); }
-    .drop-text { font-size: 1rem; margin-bottom: 0.4rem; }
-    .drop-meta {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.7rem; color: var(--muted);
-      letter-spacing: 0.06em;
-    }
-
-    #progress-panel {
-      display: none;
-      background: var(--cream);
-      border: 1px solid var(--border);
-      padding: 1.5rem;
-      margin-bottom: 2.5rem;
-    }
-    .progress-file {
-      font-weight: 600; font-size: 0.95rem;
-      margin-bottom: 1rem;
-      display: flex; align-items: center; gap: 0.5rem;
-    }
-    .progress-file-icon { color: var(--red); }
-    .progress-bar-track {
-      height: 4px; background: var(--border);
-      margin-bottom: 0.75rem; position: relative; overflow: hidden;
-    }
-    .progress-bar-fill {
-      height: 100%; background: var(--red);
-      width: 0%; transition: width 0.4s ease;
-    }
-    .progress-bar-fill.indeterminate {
-      width: 40% !important;
-      animation: slide 1.4s infinite;
-    }
-    @keyframes slide {
-      0%   { transform: translateX(-150%); }
-      100% { transform: translateX(350%); }
-    }
-    .progress-message {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.75rem; color: var(--muted);
-      letter-spacing: 0.04em; margin-bottom: 1rem;
-    }
-    .progress-pct {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.72rem; color: var(--ink); float: right;
-    }
-
-    .download-btn {
-      display: inline-flex; align-items: center; gap: 0.5rem;
-      padding: 0.7rem 1.4rem;
-      background: var(--green); color: #fff;
-      text-decoration: none;
-      font-family: 'DM Mono', monospace;
-      font-size: 0.8rem; letter-spacing: 0.06em;
-      transition: background 0.2s, transform 0.1s;
-      cursor: pointer; border: none;
-    }
-    .download-btn:hover {
-      background: #1e4d39; transform: translate(-1px, -1px);
-    }
-
-    .error-msg {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.78rem; color: var(--red);
-      background: #fdf0ee;
-      border-left: 3px solid var(--red);
-      padding: 0.6rem 0.8rem; margin-top: 0.5rem;
-    }
-
-    .history-table {
-      width: 100%; border-collapse: collapse;
-      font-family: 'DM Mono', monospace; font-size: 0.75rem;
-    }
-    .history-table th {
-      text-align: left; padding: 0.5rem 0.75rem;
-      font-weight: 500; letter-spacing: 0.08em;
-      color: var(--muted);
-      border-bottom: 1px solid var(--border);
-      text-transform: uppercase; font-size: 0.65rem;
-    }
-    .history-table td {
-      padding: 0.6rem 0.75rem;
-      border-bottom: 1px solid rgba(0,0,0,0.05);
-      vertical-align: middle;
-    }
-    .history-table tr:last-child td { border-bottom: none; }
-    .history-table tr:hover td { background: rgba(0,0,0,0.02); }
-
-    .status-badge {
-      display: inline-block;
-      padding: 0.15rem 0.5rem;
-      font-size: 0.65rem; letter-spacing: 0.06em;
-      text-transform: uppercase; font-weight: 500;
-    }
-    .status-badge.queued     { background: #eee8dc; color: var(--muted); }
-    .status-badge.processing { background: #fef3cd; color: #856404; }
-    .status-badge.done       { background: #d4edda; color: var(--green); }
-    .status-badge.failed     { background: #f8d7da; color: var(--red); }
-    .status-badge.pending    { background: #e8e8ff; color: #4444aa; }
-    .status-badge.stopped    { background: #ffe8e8; color: #aa4444; }
-
-    .action-btn {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.72rem; letter-spacing: 0.05em;
-      padding: 0.25rem 0.6rem;
-      border: none; cursor: pointer;
-      transition: background 0.15s, transform 0.1s;
-    }
-    .action-btn:hover { transform: translate(-1px, -1px); }
-    .btn-start  { background: var(--green); color: #fff; }
-    .btn-start:hover  { background: #1e4d39; }
-    .btn-stop   { background: var(--amber); color: #fff; }
-    .btn-stop:hover   { background: #8a5000; }
-    .btn-delete { background: var(--red); color: #fff; }
-    .btn-delete:hover { background: var(--red-dim); }
-    .dl-link {
-      color: var(--green); text-decoration: none;
-      border-bottom: 1px solid transparent;
-      transition: border-color 0.15s;
-    }
-    .dl-link:hover { border-color: var(--green); }
-    .filename-cell {
-      max-width: 260px; overflow: hidden;
-      text-overflow: ellipsis; white-space: nowrap;
-    }
-    .empty-history {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.75rem; color: var(--muted);
-      padding: 1.5rem 0; text-align: center;
-      letter-spacing: 0.05em;
-    }
-
-    .toast {
-      position: fixed; bottom: 2rem; right: 2rem;
-      background: var(--ink); color: var(--paper);
-      padding: 0.75rem 1.25rem;
-      font-family: 'DM Mono', monospace;
-      font-size: 0.78rem; letter-spacing: 0.05em;
-      opacity: 0; transform: translateY(10px);
-      transition: opacity 0.3s, transform 0.3s;
-      z-index: 200; pointer-events: none;
-    }
-    .toast.show { opacity: 1; transform: translateY(0); }
+    #progress-panel{display:none;background:var(--cream);border:1px solid var(--border);padding:1.5rem;margin-bottom:2.5rem}
+    .progress-file{font-weight:600;font-size:.95rem;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem}
+    .progress-file-icon{color:var(--red)}
+    .progress-bar-track{height:4px;background:var(--border);margin-bottom:.75rem;position:relative;overflow:hidden}
+    .progress-bar-fill{height:100%;background:var(--red);width:0%;transition:width .4s ease}
+    .progress-bar-fill.indeterminate{width:40%!important;animation:slide 1.4s infinite}
+    @keyframes slide{0%{transform:translateX(-150%)}100%{transform:translateX(350%)}}
+    .progress-message{font-family:'DM Mono',monospace;font-size:.75rem;color:var(--muted);letter-spacing:.04em;margin-bottom:1rem}
+    .progress-pct{font-family:'DM Mono',monospace;font-size:.72rem;color:var(--ink);float:right}
+    .download-btn{display:inline-flex;align-items:center;gap:.5rem;padding:.55rem 1rem;background:var(--green);color:#fff;text-decoration:none;font-family:'DM Mono',monospace;font-size:.72rem;letter-spacing:.06em;transition:background .2s,transform .1s;cursor:pointer;border:none}
+    .download-btn:hover{background:#1e4d39;transform:translate(-1px,-1px)}
+    .download-btn.secondary{background:var(--ink)}
+    .download-btn.secondary:hover{background:#333}
+    .error-msg{font-family:'DM Mono',monospace;font-size:.78rem;color:var(--red);background:#fdf0ee;border-left:3px solid var(--red);padding:.6rem .8rem;margin-top:.5rem}
+    .history-table{width:100%;border-collapse:collapse;font-family:'DM Mono',monospace;font-size:.75rem}
+    .history-table th{text-align:left;padding:.5rem .75rem;font-weight:500;letter-spacing:.08em;color:var(--muted);border-bottom:1px solid var(--border);text-transform:uppercase;font-size:.65rem}
+    .history-table td{padding:.6rem .75rem;border-bottom:1px solid rgba(0,0,0,.05);vertical-align:middle}
+    .history-table tr:last-child td{border-bottom:none}
+    .history-table tr:hover td{background:rgba(0,0,0,.02)}
+    .status-badge{display:inline-block;padding:.15rem .5rem;font-size:.65rem;letter-spacing:.06em;text-transform:uppercase;font-weight:500}
+    .status-badge.queued{background:#eee8dc;color:var(--muted)}
+    .status-badge.processing{background:#fef3cd;color:#856404}
+    .status-badge.done{background:#d4edda;color:var(--green)}
+    .status-badge.failed{background:#f8d7da;color:var(--red)}
+    .status-badge.pending{background:#e8e8ff;color:#4444aa}
+    .status-badge.stopped{background:#ffe8e8;color:#aa4444}
+    .action-btn{font-family:'DM Mono',monospace;font-size:.72rem;letter-spacing:.05em;padding:.25rem .6rem;border:none;cursor:pointer;transition:background .15s,transform .1s}
+    .action-btn:hover{transform:translate(-1px,-1px)}
+    .btn-start{background:var(--green);color:#fff}.btn-start:hover{background:#1e4d39}
+    .btn-stop{background:var(--amber);color:#fff}.btn-stop:hover{background:#8a5000}
+    .btn-delete{background:var(--red);color:#fff}.btn-delete:hover{background:var(--red-dim)}
+    .dl-link{color:var(--green);text-decoration:none;border-bottom:1px solid transparent;transition:border-color .15s;font-size:.7rem}
+    .dl-link:hover{border-color:var(--green)}
+    .filename-cell{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .empty-history{font-family:'DM Mono',monospace;font-size:.75rem;color:var(--muted);padding:1.5rem 0;text-align:center;letter-spacing:.05em}
+    .toast{position:fixed;bottom:2rem;right:2rem;background:var(--ink);color:var(--paper);padding:.75rem 1.25rem;font-family:'DM Mono',monospace;font-size:.78rem;letter-spacing:.05em;opacity:0;transform:translateY(10px);transition:opacity .3s,transform .3s;z-index:200;pointer-events:none}
+    .toast.show{opacity:1;transform:translateY(0)}
   </style>
 </head>
 <body>
@@ -262,7 +91,6 @@
     <a href="/auth/logout" class="logout-btn">Sign out ↗</a>
   </header>
 
-  <!-- Upload -->
   <div class="upload-section">
     <div class="section-label">New Conversion</div>
     <div class="drop-zone" id="drop-zone">
@@ -271,375 +99,231 @@
       <div class="drop-text">Drop PDF here or click to browse</div>
       <div class="drop-meta">Max 100 MB · Image-based PDF · CJK + English</div>
     </div>
+    <!-- Format selection -->
+    <div class="format-picker" id="format-picker">
+      <label class="format-option">
+        <input type="checkbox" value="epub" checked/>
+        EPUB
+        <span class="format-desc">E-reader format</span>
+      </label>
+      <label class="format-option">
+        <input type="checkbox" value="textlayer" checked/>
+        Searchable PDF
+        <span class="format-desc">Original + text layer</span>
+      </label>
+      <label class="format-option">
+        <input type="checkbox" value="clean"/>
+        Clean PDF
+        <span class="format-desc">Re-typeset text</span>
+      </label>
+    </div>
   </div>
 
-  <!-- Progress -->
   <div id="progress-panel">
     <div class="progress-file">
       <span class="progress-file-icon">📄</span>
       <span id="progress-filename">—</span>
     </div>
-    <div style="display:flex; justify-content:space-between; align-items:baseline;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
       <div class="progress-message" id="progress-message">Starting…</div>
       <div class="progress-pct" id="progress-pct">0%</div>
     </div>
-    <div class="progress-bar-track">
-      <div class="progress-bar-fill" id="progress-bar"></div>
-    </div>
+    <div class="progress-bar-track"><div class="progress-bar-fill" id="progress-bar"></div></div>
     <div id="progress-actions"></div>
   </div>
 
-  <!-- History -->
   <div id="history-section">
     <div class="section-label">Job History</div>
-    <div id="history-content">
-      <div class="empty-history">No conversions yet.</div>
-    </div>
+    <div id="history-content"><div class="empty-history">No conversions yet.</div></div>
   </div>
 </div>
-
 <div class="toast" id="toast"></div>
 
 <script>
-  let currentJobId = null;
-  let pollInterval = null;
+let currentJobId = null, pollInterval = null;
+const $ = id => document.getElementById(id);
+const dropZone=$('drop-zone'),fileInput=$('file-input'),progressPanel=$('progress-panel'),
+  progressBar=$('progress-bar'),progressMsg=$('progress-message'),progressPct=$('progress-pct'),
+  progressFn=$('progress-filename'),progressActs=$('progress-actions'),
+  historyContent=$('history-content'),toast=$('toast');
 
-  const dropZone       = document.getElementById('drop-zone');
-  const fileInput      = document.getElementById('file-input');
-  const progressPanel  = document.getElementById('progress-panel');
-  const progressBar    = document.getElementById('progress-bar');
-  const progressMsg    = document.getElementById('progress-message');
-  const progressPct    = document.getElementById('progress-pct');
-  const progressFn     = document.getElementById('progress-filename');
-  const progressActs   = document.getElementById('progress-actions');
-  const historyContent = document.getElementById('history-content');
-  const toast          = document.getElementById('toast');
+function showToast(m,d=3000){toast.textContent=m;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),d)}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function fmtDate(ts){if(!ts)return'—';const d=new Date(ts*1000);return d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
 
-  function showToast(msg, duration = 3000) {
-    toast.textContent = msg;
-    toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), duration);
+function getSelectedFormats(){
+  const cbs=document.querySelectorAll('#format-picker input[type="checkbox"]:checked');
+  const f=Array.from(cbs).map(c=>c.value);
+  return f.length?f:['epub'];
+}
+
+// drag & drop
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('drag-over')});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('drag-over');if(e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0])});
+fileInput.addEventListener('change',()=>{if(fileInput.files[0])handleFile(fileInput.files[0])});
+
+async function handleFile(file){
+  if(!file.name.toLowerCase().endsWith('.pdf'))return showToast('Please select a PDF file.');
+  if(file.size>100*1024*1024)return showToast('File exceeds 100 MB limit.');
+  progressPanel.style.display='block';progressFn.textContent=file.name;
+  progressMsg.textContent='Uploading…';progressPct.textContent='0%';progressActs.innerHTML='';
+  progressBar.style.width='0%';progressBar.classList.add('indeterminate');
+  const fd=new FormData();
+  fd.append('file',file);
+  fd.append('output_formats',getSelectedFormats().join(','));
+  try{
+    const res=await fetch('/api/upload',{method:'POST',body:fd});
+    if(!res.ok){const e=await res.json().catch(()=>({detail:'Upload failed.'}));throw new Error(e.detail||'Upload failed.')}
+    const data=await res.json();
+    currentJobId=data.job_id;
+    progressBar.classList.remove('indeterminate');progressBar.style.width='0%';
+    const p=data.page_count||0;
+    const fmts=(data.output_formats||[]).join(', ');
+    progressMsg.textContent=p?`Ready · ${p} pages · ${fmts}`:'Ready to start';
+    progressPct.textContent='0%';
+    renderPendingActions(currentJobId);loadHistory();
+  }catch(e){
+    progressBar.classList.remove('indeterminate');progressMsg.textContent='Upload failed.';
+    progressActs.innerHTML=`<div class="error-msg">${esc(e.message)}</div>`;showToast('Upload failed: '+e.message);
   }
-  function escHtml(str) {
-    return String(str)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-  function formatDate(ts) {
-    if (!ts) return '—';
-    const d = new Date(ts * 1000);
-    return d.toLocaleDateString() + ' ' +
-           d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
+}
 
-  // ── Drag & drop ────────────────────────────────────────────────────────────
-  dropZone.addEventListener('dragover', e => {
-    e.preventDefault();
-    dropZone.classList.add('drag-over');
-  });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-  dropZone.addEventListener('drop', e => {
-    e.preventDefault();
-    dropZone.classList.remove('drag-over');
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
-  });
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files[0]) handleFile(fileInput.files[0]);
-  });
+function renderPendingActions(id){
+  const i=esc(id);
+  progressActs.innerHTML=`<div style="display:flex;gap:.5rem;margin-top:.5rem">
+    <button class="action-btn btn-start" data-action="start" data-job-id="${i}">▶ Start</button>
+    <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${i}">✕ Delete</button></div>`;
+}
+function renderStoppedActions(id){
+  const i=esc(id);
+  progressActs.innerHTML=`<div style="display:flex;gap:.5rem;margin-top:.5rem">
+    <button class="action-btn btn-start" data-action="start" data-job-id="${i}">▶ Restart</button>
+    <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${i}">✕ Delete</button></div>`;
+}
 
-  // ── Upload ─────────────────────────────────────────────────────────────────
-  async function handleFile(file) {
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      showToast('Please select a PDF file.');
-      return;
-    }
-    if (file.size > 100 * 1024 * 1024) {
-      showToast('File exceeds 100 MB limit.');
-      return;
-    }
+async function startJob(id){
+  try{
+    const res=await fetch(`/api/start/${id}`,{method:'POST'});
+    if(!res.ok){const e=await res.json().catch(()=>({detail:'Start failed.'}));throw new Error(e.detail)}
+    progressMsg.textContent='Queued…';
+    const i=esc(id);
+    progressActs.innerHTML=`<div style="display:flex;gap:.5rem;margin-top:.5rem">
+      <button class="action-btn btn-stop" data-action="stop" data-job-id="${i}">⏹ Stop</button></div>`;
+    startPolling(id);loadHistory();
+  }catch(e){showToast('Start failed: '+e.message)}
+}
+async function stopJob(id){
+  try{const res=await fetch(`/api/stop/${id}`,{method:'POST'});if(!res.ok)throw new Error('Stop failed.');showToast('Stop requested.')}catch(e){showToast(e.message)}
+}
+async function deleteJob(id,isCurrent=false){
+  if(!confirm('Delete this job?'))return;
+  try{const res=await fetch(`/api/delete/${id}`,{method:'DELETE'});if(!res.ok)throw new Error('Delete failed.');
+    if(isCurrent){if(pollInterval){clearInterval(pollInterval);pollInterval=null}currentJobId=null;progressPanel.style.display='none'}
+    showToast('Deleted.');loadHistory();
+  }catch(e){showToast(e.message)}
+}
 
-    progressPanel.style.display = 'block';
-    progressFn.textContent = file.name;
-    progressMsg.textContent = 'Uploading…';
-    progressPct.textContent = '0%';
-    progressActs.innerHTML = '';
-    progressBar.style.width = '0%';
-    progressBar.classList.add('indeterminate');
+function startPolling(id){if(pollInterval)clearInterval(pollInterval);pollInterval=setInterval(()=>pollStatus(id),5000);pollStatus(id)}
+async function pollStatus(id){
+  try{const res=await fetch(`/api/status/${id}`);if(!res.ok)return;const job=await res.json();
+    updateProgressUI(job);
+    if(['done','failed','stopped'].includes(job.status)){clearInterval(pollInterval);pollInterval=null;loadHistory()}
+  }catch(_){}
+}
 
-    const formData = new FormData();
-    formData.append('file', file);
+function buildDownloadButtons(job){
+  const id=esc(job.job_id);
+  let btns=[];
+  const fmts=job.output_formats||['epub'];
+  if(fmts.includes('epub')&&job.epub_path)
+    btns.push(`<a class="download-btn" href="/api/download/${id}" download>↓ EPUB</a>`);
+  if(fmts.includes('textlayer')&&job.textlayer_path)
+    btns.push(`<a class="download-btn secondary" href="/api/download/${id}/textlayer" download>↓ Searchable PDF</a>`);
+  if(fmts.includes('clean')&&job.clean_pdf_path)
+    btns.push(`<a class="download-btn secondary" href="/api/download/${id}/clean" download>↓ Clean PDF</a>`);
+  btns.push(`<button class="action-btn btn-delete" data-action="delete-current" data-job-id="${id}">✕</button>`);
+  return btns.join(' ');
+}
 
-    try {
-      const res = await fetch('/api/upload', { method: 'POST', body: formData });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: 'Upload failed.' }));
-        throw new Error(err.detail || 'Upload failed.');
-      }
-      const data = await res.json();
-      currentJobId = data.job_id;
-      progressBar.classList.remove('indeterminate');
-      progressBar.style.width = '0%';
-      const pages = data.page_count || 0;
-      progressMsg.textContent = pages
-        ? `Ready to start · ${pages} pages`
-        : 'Ready to start';
-      progressPct.textContent = '0%';
-      renderPendingActions(currentJobId);
-      loadHistory();
-    } catch (e) {
-      progressBar.classList.remove('indeterminate');
-      progressMsg.textContent = 'Upload failed.';
-      progressActs.innerHTML = `<div class="error-msg">${escHtml(e.message)}</div>`;
-      showToast('Upload failed: ' + e.message);
-    }
-  }
+function buildHistoryDownloadLinks(job){
+  const id=esc(job.job_id);
+  let links=[];
+  const fmts=job.output_formats||['epub'];
+  if(fmts.includes('epub')&&job.epub_path)
+    links.push(`<a class="dl-link" href="/api/download/${id}" download>EPUB</a>`);
+  if(fmts.includes('textlayer')&&job.textlayer_path)
+    links.push(`<a class="dl-link" href="/api/download/${id}/textlayer" download>PDF</a>`);
+  if(fmts.includes('clean')&&job.clean_pdf_path)
+    links.push(`<a class="dl-link" href="/api/download/${id}/clean" download>Clean</a>`);
+  links.push(`<button class="action-btn btn-delete" data-action="history-delete" data-job-id="${id}">✕</button>`);
+  return links.join(' ');
+}
 
-  function renderPendingActions(jobId) {
-    const id = escHtml(jobId);
-    progressActs.innerHTML = `
-      <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
-        <button class="action-btn btn-start" data-action="start" data-job-id="${id}">▶ Start</button>
-        <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${id}">✕ Delete</button>
-      </div>`;
-  }
-  function renderStoppedActions(jobId) {
-    const id = escHtml(jobId);
-    progressActs.innerHTML = `
-      <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
-        <button class="action-btn btn-start" data-action="start" data-job-id="${id}">▶ Restart</button>
-        <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${id}">✕ Delete</button>
-      </div>`;
-  }
+function updateProgressUI(job){
+  progressMsg.textContent=job.message||job.status;
+  const pct=job.progress||0;progressPct.textContent=`${pct}%`;progressBar.style.width=`${pct}%`;
+  if(job.status==='queued')progressBar.classList.add('indeterminate');else progressBar.classList.remove('indeterminate');
+  progressActs.innerHTML='';const id=esc(job.job_id);
+  if(job.status==='done'){
+    progressActs.innerHTML=`<div style="display:flex;gap:.5rem;margin-top:.5rem;align-items:center;flex-wrap:wrap">${buildDownloadButtons(job)}</div>`;
+    showToast('Conversion complete!');
+  }else if(job.status==='failed'){
+    progressActs.innerHTML=`<div class="error-msg">${esc(job.error||'Conversion failed.')}</div>
+      <div style="display:flex;gap:.5rem;margin-top:.5rem">
+        <button class="action-btn btn-start" data-action="start" data-job-id="${id}">▶ Retry</button>
+        <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${id}">✕</button></div>`;
+  }else if(job.status==='stopped'){renderStoppedActions(job.job_id)}
+  else if(job.status==='pending'){renderPendingActions(job.job_id)}
+  else{progressActs.innerHTML=`<div style="display:flex;gap:.5rem;margin-top:.5rem">
+    <button class="action-btn btn-stop" data-action="stop" data-job-id="${id}">⏹ Stop</button></div>`}
+}
 
-  // ── Start / Stop / Delete ──────────────────────────────────────────────────
-  async function startJob(jobId) {
-    try {
-      const res = await fetch(`/api/start/${jobId}`, { method: 'POST' });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: 'Start failed.' }));
-        throw new Error(err.detail || 'Start failed.');
-      }
-      progressMsg.textContent = 'Queued…';
-      const id = escHtml(jobId);
-      progressActs.innerHTML = `
-        <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
-          <button class="action-btn btn-stop" data-action="stop" data-job-id="${id}">⏹ Stop</button>
-        </div>`;
-      startPolling(jobId);
-      loadHistory();
-    } catch (e) {
-      showToast('Start failed: ' + e.message);
-    }
-  }
+async function historyStartJob(id){
+  currentJobId=id;progressPanel.style.display='block';
+  try{const r=await fetch(`/api/status/${id}`);if(r.ok){const j=await r.json();progressFn.textContent=j.filename||''}}catch(_){}
+  progressMsg.textContent='Starting…';progressPct.textContent='0%';progressBar.style.width='0%';progressActs.innerHTML='';startJob(id);
+}
+async function historyStopJob(id){try{await fetch(`/api/stop/${id}`,{method:'POST'});showToast('Stop requested.');loadHistory()}catch(e){showToast(e.message)}}
+async function historyDeleteJob(id){
+  if(!confirm('Delete this job?'))return;
+  try{await fetch(`/api/delete/${id}`,{method:'DELETE'});
+    if(id===currentJobId){if(pollInterval){clearInterval(pollInterval);pollInterval=null}currentJobId=null;progressPanel.style.display='none'}
+    showToast('Deleted.');loadHistory()}catch(e){showToast(e.message)}
+}
 
-  async function stopJob(jobId) {
-    try {
-      const res = await fetch(`/api/stop/${jobId}`, { method: 'POST' });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: 'Stop failed.' }));
-        throw new Error(err.detail || 'Stop failed.');
-      }
-      showToast('Stop requested.');
-    } catch (e) {
-      showToast('Stop failed: ' + e.message);
-    }
-  }
+async function loadHistory(){
+  try{
+    const res=await fetch('/api/history');if(!res.ok)return;const jobs=await res.json();
+    if(!jobs.length){historyContent.innerHTML='<div class="empty-history">No conversions yet.</div>';return}
+    const rows=jobs.map(job=>{
+      const id=esc(job.job_id),pages=job.page_count?`${job.page_count} pp`:'—';
+      let actions='';
+      if(job.status==='done'){actions=buildHistoryDownloadLinks(job)}
+      else if(['pending','stopped','failed'].includes(job.status)){
+        const l=job.status==='pending'?'▶ Start':job.status==='stopped'?'▶ Restart':'▶ Retry';
+        actions=`<button class="action-btn btn-start" data-action="history-start" data-job-id="${id}">${l}</button>
+          &nbsp;<button class="action-btn btn-delete" data-action="history-delete" data-job-id="${id}">✕</button>`}
+      else if(['queued','processing'].includes(job.status)){
+        actions=`<button class="action-btn btn-stop" data-action="history-stop" data-job-id="${id}">⏹ Stop</button>`}
+      return`<tr><td class="filename-cell" title="${esc(job.filename)}">${esc(job.filename)}</td>
+        <td>${pages}</td><td><span class="status-badge ${esc(job.status)}">${esc(job.status)}</span></td>
+        <td>${fmtDate(job.created_at)}</td><td>${actions||'—'}</td></tr>`
+    }).join('');
+    historyContent.innerHTML=`<table class="history-table"><thead><tr>
+      <th>File</th><th>Pages</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }catch(_){}
+}
 
-  async function deleteJob(jobId, isCurrentJob = false) {
-    if (!confirm('Delete this job and its files?')) return;
-    try {
-      const res = await fetch(`/api/delete/${jobId}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: 'Delete failed.' }));
-        throw new Error(err.detail || 'Delete failed.');
-      }
-      if (isCurrentJob) {
-        if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-        currentJobId = null;
-        progressPanel.style.display = 'none';
-      }
-      showToast('Job deleted.');
-      loadHistory();
-    } catch (e) {
-      showToast('Delete failed: ' + e.message);
-    }
-  }
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-action]');if(!b)return;
+  const a=b.dataset.action,id=b.dataset.jobId;
+  if(a==='start')startJob(id);else if(a==='stop')stopJob(id);else if(a==='delete-current')deleteJob(id,true);
+  else if(a==='history-start')historyStartJob(id);else if(a==='history-stop')historyStopJob(id);
+  else if(a==='history-delete')historyDeleteJob(id);
+});
 
-  // ── Polling ────────────────────────────────────────────────────────────────
-  function startPolling(jobId) {
-    if (pollInterval) clearInterval(pollInterval);
-    pollInterval = setInterval(() => pollStatus(jobId), 5000);
-    pollStatus(jobId);
-  }
-
-  async function pollStatus(jobId) {
-    try {
-      const res = await fetch(`/api/status/${jobId}`);
-      if (!res.ok) return;
-      const job = await res.json();
-      updateProgressUI(job);
-      if (['done', 'failed', 'stopped'].includes(job.status)) {
-        clearInterval(pollInterval);
-        pollInterval = null;
-        loadHistory();
-      }
-    } catch (_) {}
-  }
-
-  function updateProgressUI(job) {
-    progressMsg.textContent = job.message || job.status;
-    const pct = job.progress || 0;
-    progressPct.textContent = `${pct}%`;
-    progressBar.style.width = `${pct}%`;
-    if (job.status === 'queued') progressBar.classList.add('indeterminate');
-    else                          progressBar.classList.remove('indeterminate');
-
-    progressActs.innerHTML = '';
-    const id = escHtml(job.job_id);
-
-    if (job.status === 'done') {
-      progressActs.innerHTML = `
-        <div style="display:flex;gap:0.5rem;margin-top:0.5rem;align-items:center;">
-          <a class="download-btn" href="/api/download/${id}" download>↓ Download EPUB</a>
-          <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${id}">✕ Delete</button>
-        </div>`;
-      showToast('Conversion complete!');
-    } else if (job.status === 'failed') {
-      progressActs.innerHTML = `
-        <div class="error-msg">${escHtml(job.error || 'An error occurred during conversion.')}</div>
-        <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
-          <button class="action-btn btn-start" data-action="start" data-job-id="${id}">▶ Retry</button>
-          <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${id}">✕ Delete</button>
-        </div>`;
-    } else if (job.status === 'stopped') {
-      renderStoppedActions(job.job_id);
-    } else if (job.status === 'pending') {
-      renderPendingActions(job.job_id);
-    } else {
-      progressActs.innerHTML = `
-        <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
-          <button class="action-btn btn-stop" data-action="stop" data-job-id="${id}">⏹ Stop</button>
-        </div>`;
-    }
-  }
-
-  // ── History ────────────────────────────────────────────────────────────────
-  async function historyStartJob(jobId) {
-    currentJobId = jobId;
-    progressPanel.style.display = 'block';
-    try {
-      const r = await fetch(`/api/status/${jobId}`);
-      if (r.ok) {
-        const j = await r.json();
-        progressFn.textContent = j.filename || '';
-      }
-    } catch (_) {}
-    progressMsg.textContent = 'Starting…';
-    progressPct.textContent = '0%';
-    progressBar.style.width = '0%';
-    progressActs.innerHTML = '';
-    startJob(jobId);
-  }
-
-  async function historyStopJob(jobId) {
-    try {
-      const res = await fetch(`/api/stop/${jobId}`, { method: 'POST' });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: 'Stop failed.' }));
-        throw new Error(err.detail || 'Stop failed.');
-      }
-      showToast('Stop requested.');
-      loadHistory();
-    } catch (e) {
-      showToast('Stop failed: ' + e.message);
-    }
-  }
-
-  async function historyDeleteJob(jobId) {
-    if (!confirm('Delete this job and its files?')) return;
-    try {
-      const res = await fetch(`/api/delete/${jobId}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: 'Delete failed.' }));
-        throw new Error(err.detail || 'Delete failed.');
-      }
-      if (jobId === currentJobId) {
-        if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-        currentJobId = null;
-        progressPanel.style.display = 'none';
-      }
-      showToast('Job deleted.');
-      loadHistory();
-    } catch (e) {
-      showToast('Delete failed: ' + e.message);
-    }
-  }
-
-  async function loadHistory() {
-    try {
-      const res = await fetch('/api/history');
-      if (!res.ok) return;
-      const jobs = await res.json();
-
-      if (!jobs.length) {
-        historyContent.innerHTML = '<div class="empty-history">No conversions yet.</div>';
-        return;
-      }
-
-      const rows = jobs.map(job => {
-        const id = escHtml(job.job_id);
-        const pages = job.page_count ? `${job.page_count} pp` : '—';
-        let actions = '';
-        if (job.status === 'done') {
-          actions = `<a class="dl-link" href="/api/download/${id}" download>Download</a>
-            &nbsp;<button class="action-btn btn-delete" data-action="history-delete" data-job-id="${id}">✕</button>`;
-        } else if (['pending', 'stopped', 'failed'].includes(job.status)) {
-          const label = job.status === 'pending' ? '▶ Start' : job.status === 'stopped' ? '▶ Restart' : '▶ Retry';
-          actions = `<button class="action-btn btn-start" data-action="history-start" data-job-id="${id}">${label}</button>
-            &nbsp;<button class="action-btn btn-delete" data-action="history-delete" data-job-id="${id}">✕</button>`;
-        } else if (['queued', 'processing'].includes(job.status)) {
-          actions = `<button class="action-btn btn-stop" data-action="history-stop" data-job-id="${id}">⏹ Stop</button>`;
-        }
-        return `
-          <tr>
-            <td class="filename-cell" title="${escHtml(job.filename)}">${escHtml(job.filename)}</td>
-            <td>${pages}</td>
-            <td><span class="status-badge ${escHtml(job.status)}">${escHtml(job.status)}</span></td>
-            <td>${formatDate(job.created_at)}</td>
-            <td>${actions || '—'}</td>
-          </tr>`;
-      }).join('');
-
-      historyContent.innerHTML = `
-        <table class="history-table">
-          <thead>
-            <tr>
-              <th>File</th><th>Pages</th><th>Status</th>
-              <th>Created</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>`;
-    } catch (_) {}
-  }
-
-  // ── Delegated button handler ───────────────────────────────────────────────
-  document.addEventListener('click', e => {
-    const btn = e.target.closest('[data-action]');
-    if (!btn) return;
-    const action = btn.dataset.action;
-    const jobId  = btn.dataset.jobId;
-    if      (action === 'start')           startJob(jobId);
-    else if (action === 'stop')            stopJob(jobId);
-    else if (action === 'delete-current')  deleteJob(jobId, true);
-    else if (action === 'history-start')   historyStartJob(jobId);
-    else if (action === 'history-stop')    historyStopJob(jobId);
-    else if (action === 'history-delete')  historyDeleteJob(jobId);
-  });
-
-  // ── Init ───────────────────────────────────────────────────────────────────
-  loadHistory();
+loadHistory();
 </script>
 </body>
 </html>
