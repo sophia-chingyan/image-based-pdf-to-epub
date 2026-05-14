@@ -202,9 +202,18 @@ function renderStoppedActions(id){
     <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${i}">✕ Delete</button></div>`;
 }
 
+/* ── FIX: send current checkbox state at start time ──────────────────────────
+   Previously startJob() called POST /api/start with no body, so the worker
+   used whatever formats were saved at upload time. Now we send the current
+   checkbox state as JSON, so if the user changes checkboxes between upload
+   and start, the correct formats are used. */
 async function startJob(id){
   try{
-    const res=await fetch(`/api/start/${id}`,{method:'POST'});
+    const res=await fetch(`/api/start/${id}`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({output_formats:getSelectedFormats()})
+    });
     if(!res.ok){const e=await res.json().catch(()=>({detail:'Start failed.'}));throw new Error(e.detail)}
     progressMsg.textContent='Queued…';
     const i=esc(id);
