@@ -1,12 +1,12 @@
 ocr:
   engine: gemini
-  model_name: "gemini-2.5-flash"
-  rpm_limit: 100
-  rpd_limit: 250
+  model_name: "gemini-2.5-flash-lite"
+  rpm_limit: 15
+  rpd_limit: 1000
   max_retries: 3
   request_timeout_s: 120
   confidence_threshold: 0.7
-  dpi: 300
+  dpi: 400
 
 pipeline:
   max_pdf_size_mb: 100
