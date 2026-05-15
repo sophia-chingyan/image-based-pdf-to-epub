@@ -277,9 +277,7 @@ async def start_job(job_id: str, request: Request, user: str = Depends(require_a
         await r.aclose()
         raise HTTPException(400, f"Cannot start from status: {job['status']}.")
 
-    # ── FIX: accept output_formats at start time ─────────────────────────────
-    # The frontend sends the current checkbox state as JSON so the user can
-    # change format selection between upload and start.
+    # ── Accept output_formats at start time ──────────────────────────────────
     try:
         body = await request.json()
     except Exception:
