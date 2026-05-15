@@ -33,11 +33,12 @@
     .drop-text{font-size:1rem;margin-bottom:.4rem}
     .drop-meta{font-family:'DM Mono',monospace;font-size:.7rem;color:var(--muted);letter-spacing:.06em}
 
-    /* ── Format picker ── */
-    .format-picker{display:flex;gap:1rem;margin-top:1.2rem;justify-content:center;flex-wrap:wrap}
+    /* ── Format picker (inside progress panel, shown after upload) ── */
+    .format-picker{display:flex;gap:1rem;margin:1rem 0 .5rem;justify-content:flex-start;flex-wrap:wrap}
     .format-option{display:flex;align-items:center;gap:.4rem;font-family:'DM Mono',monospace;font-size:.75rem;color:var(--ink);cursor:pointer;user-select:none}
     .format-option input[type="checkbox"]{accent-color:var(--red);width:15px;height:15px;cursor:pointer}
     .format-desc{font-size:.62rem;color:var(--muted);display:block;margin-left:19px;margin-top:1px}
+    .format-label{font-family:'DM Mono',monospace;font-size:.65rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem}
 
     #progress-panel{display:none;background:var(--cream);border:1px solid var(--border);padding:1.5rem;margin-bottom:2.5rem}
     .progress-file{font-weight:600;font-size:.95rem;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem}
@@ -91,6 +92,7 @@
     <a href="/auth/logout" class="logout-btn">Sign out ↗</a>
   </header>
 
+  <!-- Upload — no format picker here; formats are chosen after upload -->
   <div class="upload-section">
     <div class="section-label">New Conversion</div>
     <div class="drop-zone" id="drop-zone">
@@ -99,26 +101,9 @@
       <div class="drop-text">Drop PDF here or click to browse</div>
       <div class="drop-meta">Max 100 MB · Image-based PDF · CJK + English</div>
     </div>
-    <!-- Format selection -->
-    <div class="format-picker" id="format-picker">
-      <label class="format-option">
-        <input type="checkbox" value="epub" checked/>
-        EPUB
-        <span class="format-desc">E-reader format</span>
-      </label>
-      <label class="format-option">
-        <input type="checkbox" value="textlayer" checked/>
-        Searchable PDF
-        <span class="format-desc">Original + text layer</span>
-      </label>
-      <label class="format-option">
-        <input type="checkbox" value="clean"/>
-        Clean PDF
-        <span class="format-desc">Re-typeset text</span>
-      </label>
-    </div>
   </div>
 
+  <!-- Progress panel — format picker appears here after successful upload -->
   <div id="progress-panel">
     <div class="progress-file">
       <span class="progress-file-icon">📄</span>
@@ -129,6 +114,27 @@
       <div class="progress-pct" id="progress-pct">0%</div>
     </div>
     <div class="progress-bar-track"><div class="progress-bar-fill" id="progress-bar"></div></div>
+    <!-- Format picker shown after upload, hidden once job starts -->
+    <div id="format-section" style="display:none">
+      <div class="format-label">Output formats</div>
+      <div class="format-picker" id="format-picker">
+        <label class="format-option">
+          <input type="checkbox" value="epub"/>
+          EPUB
+          <span class="format-desc">E-reader format</span>
+        </label>
+        <label class="format-option">
+          <input type="checkbox" value="textlayer" checked/>
+          Searchable PDF
+          <span class="format-desc">Original + text layer</span>
+        </label>
+        <label class="format-option">
+          <input type="checkbox" value="clean"/>
+          Clean PDF
+          <span class="format-desc">Re-typeset text</span>
+        </label>
+      </div>
+    </div>
     <div id="progress-actions"></div>
   </div>
 
@@ -145,7 +151,8 @@ const $ = id => document.getElementById(id);
 const dropZone=$('drop-zone'),fileInput=$('file-input'),progressPanel=$('progress-panel'),
   progressBar=$('progress-bar'),progressMsg=$('progress-message'),progressPct=$('progress-pct'),
   progressFn=$('progress-filename'),progressActs=$('progress-actions'),
-  historyContent=$('history-content'),toast=$('toast');
+  historyContent=$('history-content'),toast=$('toast'),
+  formatSection=$('format-section');
 
 function showToast(m,d=3000){toast.textContent=m;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),d)}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
@@ -167,11 +174,12 @@ async function handleFile(file){
   if(!file.name.toLowerCase().endsWith('.pdf'))return showToast('Please select a PDF file.');
   if(file.size>100*1024*1024)return showToast('File exceeds 100 MB limit.');
   progressPanel.style.display='block';progressFn.textContent=file.name;
-  progressMsg.textContent='Uploading…';progressPct.textContent='0%';progressActs.innerHTML='';
+  progressMsg.textContent='Uploading…';progressPct.textContent='';progressActs.innerHTML='';
   progressBar.style.width='0%';progressBar.classList.add('indeterminate');
+  formatSection.style.display='none';
   const fd=new FormData();
   fd.append('file',file);
-  fd.append('output_formats',getSelectedFormats().join(','));
+  // No output_formats sent here — user picks formats after upload, sent at start time
   try{
     const res=await fetch('/api/upload',{method:'POST',body:fd});
     if(!res.ok){const e=await res.json().catch(()=>({detail:'Upload failed.'}));throw new Error(e.detail||'Upload failed.')}
@@ -179,10 +187,12 @@ async function handleFile(file){
     currentJobId=data.job_id;
     progressBar.classList.remove('indeterminate');progressBar.style.width='0%';
     const p=data.page_count||0;
-    const fmts=(data.output_formats||[]).join(', ');
-    progressMsg.textContent=p?`Ready · ${p} pages · ${fmts}`:'Ready to start';
-    progressPct.textContent='0%';
-    renderPendingActions(currentJobId);loadHistory();
+    progressMsg.textContent=p?`Uploaded · ${p} pages · choose formats below`:'Uploaded · choose formats below';
+    progressPct.textContent='';
+    // Show format picker so user can choose before clicking Start
+    formatSection.style.display='block';
+    renderPendingActions(currentJobId);
+    loadHistory();
   }catch(e){
     progressBar.classList.remove('indeterminate');progressMsg.textContent='Upload failed.';
     progressActs.innerHTML=`<div class="error-msg">${esc(e.message)}</div>`;showToast('Upload failed: '+e.message);
@@ -197,25 +207,26 @@ function renderPendingActions(id){
 }
 function renderStoppedActions(id){
   const i=esc(id);
+  formatSection.style.display='block';
   progressActs.innerHTML=`<div style="display:flex;gap:.5rem;margin-top:.5rem">
     <button class="action-btn btn-start" data-action="start" data-job-id="${i}">▶ Restart</button>
     <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${i}">✕ Delete</button></div>`;
 }
 
-/* ── FIX: send current checkbox state at start time ──────────────────────────
-   Previously startJob() called POST /api/start with no body, so the worker
-   used whatever formats were saved at upload time. Now we send the current
-   checkbox state as JSON, so if the user changes checkboxes between upload
-   and start, the correct formats are used. */
 async function startJob(id){
   try{
+    // Send current checkbox state at start time
+    const fmts=getSelectedFormats();
     const res=await fetch(`/api/start/${id}`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({output_formats:getSelectedFormats()})
+      body:JSON.stringify({output_formats:fmts})
     });
     if(!res.ok){const e=await res.json().catch(()=>({detail:'Start failed.'}));throw new Error(e.detail)}
-    progressMsg.textContent='Queued…';
+    // Hide format picker once job is running
+    formatSection.style.display='none';
+    progressMsg.textContent='Queued · '+fmts.join(', ');
+    progressPct.textContent='0%';
     const i=esc(id);
     progressActs.innerHTML=`<div style="display:flex;gap:.5rem;margin-top:.5rem">
       <button class="action-btn btn-stop" data-action="stop" data-job-id="${i}">⏹ Stop</button></div>`;
@@ -274,24 +285,34 @@ function updateProgressUI(job){
   const pct=job.progress||0;progressPct.textContent=`${pct}%`;progressBar.style.width=`${pct}%`;
   if(job.status==='queued')progressBar.classList.add('indeterminate');else progressBar.classList.remove('indeterminate');
   progressActs.innerHTML='';const id=esc(job.job_id);
+  // Hide format picker during processing / done / failed
   if(job.status==='done'){
+    formatSection.style.display='none';
     progressActs.innerHTML=`<div style="display:flex;gap:.5rem;margin-top:.5rem;align-items:center;flex-wrap:wrap">${buildDownloadButtons(job)}</div>`;
     showToast('Conversion complete!');
   }else if(job.status==='failed'){
+    formatSection.style.display='none';
     progressActs.innerHTML=`<div class="error-msg">${esc(job.error||'Conversion failed.')}</div>
       <div style="display:flex;gap:.5rem;margin-top:.5rem">
         <button class="action-btn btn-start" data-action="start" data-job-id="${id}">▶ Retry</button>
         <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${id}">✕</button></div>`;
   }else if(job.status==='stopped'){renderStoppedActions(job.job_id)}
-  else if(job.status==='pending'){renderPendingActions(job.job_id)}
-  else{progressActs.innerHTML=`<div style="display:flex;gap:.5rem;margin-top:.5rem">
-    <button class="action-btn btn-stop" data-action="stop" data-job-id="${id}">⏹ Stop</button></div>`}
+  else if(job.status==='pending'){
+    formatSection.style.display='block';
+    renderPendingActions(job.job_id);
+  }else{
+    formatSection.style.display='none';
+    progressActs.innerHTML=`<div style="display:flex;gap:.5rem;margin-top:.5rem">
+    <button class="action-btn btn-stop" data-action="stop" data-job-id="${id}">⏹ Stop</button></div>`;
+  }
 }
 
 async function historyStartJob(id){
   currentJobId=id;progressPanel.style.display='block';
   try{const r=await fetch(`/api/status/${id}`);if(r.ok){const j=await r.json();progressFn.textContent=j.filename||''}}catch(_){}
-  progressMsg.textContent='Starting…';progressPct.textContent='0%';progressBar.style.width='0%';progressActs.innerHTML='';startJob(id);
+  progressMsg.textContent='Choose formats, then start';progressPct.textContent='';progressBar.style.width='0%';progressActs.innerHTML='';
+  formatSection.style.display='block';
+  renderPendingActions(id);
 }
 async function historyStopJob(id){try{await fetch(`/api/stop/${id}`,{method:'POST'});showToast('Stop requested.');loadHistory()}catch(e){showToast(e.message)}}
 async function historyDeleteJob(id){
