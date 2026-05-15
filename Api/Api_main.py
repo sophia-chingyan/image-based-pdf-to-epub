@@ -266,7 +266,7 @@ async def download_clean_pdf(job_id: str, user: str = Depends(require_auth)):
 
 # ── Start / Stop / Delete ────────────────────────────────────────────────────
 @app.post("/api/start/{job_id}")
-async def start_job(job_id: str, user: str = Depends(require_auth)):
+async def start_job(job_id: str, request: Request, user: str = Depends(require_auth)):
     r = await get_redis()
     raw = await r.get(f"job:{job_id}")
     if not raw:
@@ -276,11 +276,34 @@ async def start_job(job_id: str, user: str = Depends(require_auth)):
     if job["status"] not in ("pending", "stopped", "failed"):
         await r.aclose()
         raise HTTPException(400, f"Cannot start from status: {job['status']}.")
+
+    # ── Accept output_formats at start time ──────────────────────────────────
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    if isinstance(body, dict) and "output_formats" in body:
+        valid = {"epub", "textlayer", "clean"}
+        new_fmts = [f.strip() for f in body["output_formats"]
+                    if isinstance(f, str) and f.strip() in valid]
+        if new_fmts:
+            job["output_formats"] = new_fmts
+
+    # Clear stale output paths from any previous run
+    job["epub_path"] = ""
+    job["textlayer_path"] = ""
+    job["clean_pdf_path"] = ""
+
     job.update(status="queued", message="Queued", progress=0, error="", stop_requested=False)
     await r.set(f"job:{job_id}", json.dumps(job))
     await r.lpush("job_queue", job_id)
     await r.aclose()
-    return JSONResponse({"job_id": job_id, "status": "queued"})
+    return JSONResponse({
+        "job_id": job_id,
+        "status": "queued",
+        "output_formats": job["output_formats"],
+    })
 
 @app.post("/api/stop/{job_id}")
 async def stop_job(job_id: str, user: str = Depends(require_auth)):
