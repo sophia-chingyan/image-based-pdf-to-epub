@@ -9,7 +9,7 @@
   <style>
     :root {
       --ink:#1a1614;--paper:#f5f0e8;--cream:#fffdf8;--red:#c0392b;--red-dim:#8b2a1f;
-      --green:#27624a;--amber:#c07000;--muted:#7a6e65;--border:#d4c9b8;
+      --green:#27624a;--amber:#c07000;--blue:#2563eb;--muted:#7a6e65;--border:#d4c9b8;
     }
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     body{min-height:100vh;background:var(--paper);color:var(--ink);font-family:'Shippori Mincho',serif}
@@ -71,6 +71,7 @@
     .status-badge.failed{background:#f8d7da;color:var(--red)}
     .status-badge.pending{background:#e8e8ff;color:#4444aa}
     .status-badge.stopped{background:#ffe8e8;color:#aa4444}
+    .status-badge.paused{background:#dbeafe;color:var(--blue)}
 
     /* ── Processing detail row ── */
     .history-card-detail{font-family:'DM Mono',monospace;font-size:.72rem;color:var(--muted);margin-bottom:.6rem;letter-spacing:.03em}
@@ -90,6 +91,7 @@
     .action-btn{font-family:'DM Mono',monospace;font-size:.72rem;letter-spacing:.05em;padding:.25rem .6rem;border:none;cursor:pointer;transition:background .15s,transform .1s}
     .action-btn:hover{transform:translate(-1px,-1px)}
     .btn-start{background:var(--green);color:#fff}.btn-start:hover{background:#1e4d39}
+    .btn-pause{background:var(--blue);color:#fff}.btn-pause:hover{background:#1d4ed8}
     .btn-stop{background:var(--amber);color:#fff}.btn-stop:hover{background:#8a5000}
     .btn-delete{background:var(--red);color:#fff}.btn-delete:hover{background:var(--red-dim)}
     .dl-link{display:inline-flex;align-items:center;gap:.3rem;padding:.25rem .6rem;background:var(--green);color:#fff;text-decoration:none;font-family:'DM Mono',monospace;font-size:.68rem;letter-spacing:.05em;transition:background .15s,transform .1s;cursor:pointer;border:none}
@@ -244,6 +246,13 @@ function renderStoppedActions(id){
     <button class="action-btn btn-start" data-action="start" data-job-id="${i}">▶ Restart</button>
     <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${i}">✕ Delete</button></div>`;
 }
+function renderPausedActions(id){
+  const i=esc(id);
+  formatSection.style.display='block';
+  progressActs.innerHTML=`<div style="display:flex;gap:.5rem;margin-top:.5rem">
+    <button class="action-btn btn-start" data-action="start" data-job-id="${i}">▶ Resume</button>
+    <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${i}">✕ Delete</button></div>`;
+}
 
 async function startJob(id){
   try{
@@ -259,10 +268,16 @@ async function startJob(id){
     progressPct.textContent='0%';
     const i=esc(id);
     progressActs.innerHTML=`<div style="display:flex;gap:.5rem;margin-top:.5rem">
+      <button class="action-btn btn-pause" data-action="pause" data-job-id="${i}">⏸ Pause</button>
       <button class="action-btn btn-stop" data-action="stop" data-job-id="${i}">⏹ Stop</button></div>`;
     startPolling(id);loadHistory();
   }catch(e){showToast('Start failed: '+e.message)}
 }
+
+async function pauseJob(id){
+  try{const res=await fetch(`/api/pause/${id}`,{method:'POST'});if(!res.ok)throw new Error('Pause failed.');showToast('Pause requested.')}catch(e){showToast(e.message)}
+}
+
 async function stopJob(id){
   try{const res=await fetch(`/api/stop/${id}`,{method:'POST'});if(!res.ok)throw new Error('Stop failed.');showToast('Stop requested.')}catch(e){showToast(e.message)}
 }
@@ -278,7 +293,7 @@ function startPolling(id){if(pollInterval)clearInterval(pollInterval);pollInterv
 async function pollStatus(id){
   try{const res=await fetch(`/api/status/${id}`);if(!res.ok)return;const job=await res.json();
     updateProgressUI(job);
-    if(['done','failed','stopped'].includes(job.status)){clearInterval(pollInterval);pollInterval=null;loadHistory()}
+    if(['done','failed','stopped','paused'].includes(job.status)){clearInterval(pollInterval);pollInterval=null;loadHistory()}
   }catch(_){}
 }
 
@@ -312,12 +327,14 @@ function updateProgressUI(job){
         <button class="action-btn btn-start" data-action="start" data-job-id="${id}">▶ Retry</button>
         <button class="action-btn btn-delete" data-action="delete-current" data-job-id="${id}">✕</button></div>`;
   }else if(job.status==='stopped'){renderStoppedActions(job.job_id)}
+  else if(job.status==='paused'){renderPausedActions(job.job_id)}
   else if(job.status==='pending'){
     formatSection.style.display='block';
     renderPendingActions(job.job_id);
   }else{
     formatSection.style.display='none';
     progressActs.innerHTML=`<div style="display:flex;gap:.5rem;margin-top:.5rem">
+    <button class="action-btn btn-pause" data-action="pause" data-job-id="${id}">⏸ Pause</button>
     <button class="action-btn btn-stop" data-action="stop" data-job-id="${id}">⏹ Stop</button></div>`;
   }
 }
@@ -330,7 +347,6 @@ function buildFormatTags(job) {
   const fmts = job.output_formats || ['epub'];
   return fmts.map(f => {
     const label = FORMAT_LABELS[f] || f;
-    // Determine if this specific format is ready (has a file path)
     let cls = 'format-tag';
     if (job.status === 'done') {
       const pathKey = f === 'epub' ? 'epub_path' : f === 'textlayer' ? 'textlayer_path' : 'clean_pdf_path';
@@ -370,7 +386,6 @@ function renderHistoryCard(job) {
   let actionsHTML = '';
   let errorHTML = '';
 
-  // ── Detail: show the current processing message ──
   if (isActive) {
     const msg = job.message || job.status;
     detailHTML = `<div class="history-card-detail">
@@ -395,27 +410,31 @@ function renderHistoryCard(job) {
     detailHTML = `<div class="history-card-detail">
       <span class="detail-message">Stopped by user</span> · ${pages}
     </div>`;
+  } else if (job.status === 'paused') {
+    detailHTML = `<div class="history-card-detail">
+      <span class="detail-message">Paused by user</span> · ${pages} · ${pct}%
+    </div>`;
   } else if (job.status === 'pending') {
     detailHTML = `<div class="history-card-detail">
       <span class="detail-message">Waiting to start</span> · ${pages}
     </div>`;
   }
 
-  // ── Actions ──
   if (job.status === 'done') {
     const dlLinks = buildHistoryDownloadLinks(job);
     actionsHTML = `<div class="history-card-actions">
       ${dlLinks}
       <button class="action-btn btn-delete" data-action="history-delete" data-job-id="${id}" title="Delete job and files">✕</button>
     </div>`;
-  } else if (['pending', 'stopped', 'failed'].includes(job.status)) {
-    const label = job.status === 'pending' ? '▶ Start' : job.status === 'stopped' ? '▶ Restart' : '▶ Retry';
+  } else if (['pending', 'stopped', 'failed', 'paused'].includes(job.status)) {
+    const label = job.status === 'pending' ? '▶ Start' : job.status === 'paused' ? '▶ Resume' : job.status === 'stopped' ? '▶ Restart' : '▶ Retry';
     actionsHTML = `<div class="history-card-actions">
       <button class="action-btn btn-start" data-action="history-start" data-job-id="${id}">${label}</button>
       <button class="action-btn btn-delete" data-action="history-delete" data-job-id="${id}" title="Delete job and files">✕</button>
     </div>`;
   } else if (isActive) {
     actionsHTML = `<div class="history-card-actions">
+      <button class="action-btn btn-pause" data-action="history-pause" data-job-id="${id}">⏸ Pause</button>
       <button class="action-btn btn-stop" data-action="history-stop" data-job-id="${id}">⏹ Stop</button>
     </div>`;
   }
@@ -462,14 +481,13 @@ async function resumeActiveJobs() {
     const jobs = await res.json();
     for (const job of jobs) {
       if (['queued', 'processing'].includes(job.status)) {
-        // Found an active job — show it in the progress panel and resume polling
         currentJobId = job.job_id;
         progressPanel.style.display = 'block';
         progressFn.textContent = job.filename || '';
         formatSection.style.display = 'none';
         updateProgressUI(job);
         startPolling(job.job_id);
-        break; // Only track one active job at a time
+        break;
       }
     }
   } catch(_) {}
@@ -492,6 +510,14 @@ async function historyStartJob(id) {
   progressActs.innerHTML = '';
   formatSection.style.display = 'block';
   renderPendingActions(id);
+}
+
+async function historyPauseJob(id) {
+  try {
+    await fetch(`/api/pause/${id}`, {method: 'POST'});
+    showToast('Pause requested.');
+    loadHistory();
+  } catch(e) { showToast(e.message); }
 }
 
 async function historyStopJob(id) {
@@ -522,9 +548,11 @@ document.addEventListener('click', e => {
   if (!b) return;
   const a = b.dataset.action, id = b.dataset.jobId;
   if (a === 'start') startJob(id);
+  else if (a === 'pause') pauseJob(id);
   else if (a === 'stop') stopJob(id);
   else if (a === 'delete-current') deleteJob(id, true);
   else if (a === 'history-start') historyStartJob(id);
+  else if (a === 'history-pause') historyPauseJob(id);
   else if (a === 'history-stop') historyStopJob(id);
   else if (a === 'history-delete') historyDeleteJob(id);
 });
@@ -553,7 +581,6 @@ function startHistoryRefresh() {
 /* ── Init ── */
 loadHistory();
 resumeActiveJobs();
-// Check if there are active jobs and start refreshing
 fetch('/api/history').then(r=>r.json()).then(jobs=>{
   if(jobs.some(j=>['queued','processing'].includes(j.status))) startHistoryRefresh();
 }).catch(()=>{});
