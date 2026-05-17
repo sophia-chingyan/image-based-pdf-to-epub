@@ -148,6 +148,8 @@ Return this exact JSON structure:
 }
 
 Rules:
+- Extract ALL text completely and without any omissions. Reproduce every character verbatim — do NOT paraphrase, summarise, or add any text that is not literally visible in the image. If a block is long, output the full text in a single block rather than truncating it.
+- Preserve the original paragraph structure exactly as it appears on the page, including all punctuation, line breaks within blocks, and spacing that is meaningful to the text.
 - "direction" indicates the dominant text flow on this page. Vertical text (typical in CJK literature) flows top-to-bottom, right-to-left.
 - "bbox" is in pixel coordinates of THIS image, where (0,0) is top-left and values are integers.
 - Classify each region:
@@ -161,7 +163,7 @@ Rules:
 - For vertical text, output the text in natural reading order (top-to-bottom within each column, columns ordered right-to-left).
 - Order "blocks" in natural reading order for the page.
 - If the page has no text (e.g. a full-page illustration), return {"direction":"horizontal","blocks":[]}.
-- Return ONLY the JSON object, no commentary, no markdown fences.
+- Return ONLY the JSON object, no commentary, no markdown fences, no explanations, no introductions, and no conclusions.
 """
 
 
