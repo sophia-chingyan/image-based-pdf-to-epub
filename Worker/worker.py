@@ -1,22 +1,18 @@
 """
 Worker — supports three output formats: epub, textlayer, clean.
 
-Per-page OCR caching
-====================
+Per-page OCR caching + Pause/Resume Support
+============================================
 After each page is OCR'd successfully, the page result is saved to Redis
-under `ocr:{job_id}:{page_num}`. If the job is later stopped, fails (e.g.
-quota exhaustion), or the container restarts, the next run skips pages
-that already have a cached result — no API call, no quota cost.
+under `ocr:{job_id}:{page_num}`. If the job is paused, stopped, or fails,
+the next run skips pages that already have a cached result.
 
-Cache lifecycle:
-- Written: after each successful page OCR
-- Read:    before each page, to decide whether to call the API
-- Deleted: when the job reaches status=done (full success), or when the
-           user explicitly deletes the job (via the API)
-- Kept:    when the job is failed/stopped, so retry can resume
-
-The cache key prefix is `ocr:{job_id}:` so all keys for one job can be
-cleared with a SCAN+DEL pass (see `_clear_ocr_cache`).
+Pause mechanism:
+- User clicks Pause → API sets pause_requested=True
+- Worker checks pause_requested after each page
+- If True → worker sets status="paused", saves progress, exits cleanly
+- User clicks Resume/Start → job goes back to "queued" → worker picks up
+  where it left off using cached OCR results
 """
 from __future__ import annotations
 import os, sys, json, time, shutil, logging, traceback, gc
@@ -68,8 +64,6 @@ def _save_ocr_page(r, job_id: str, page_num: int, page_result: dict) -> None:
     try:
         r.set(_ocr_cache_key(job_id, page_num), json.dumps(page_result))
     except Exception as e:
-        # Cache write failure is non-fatal — we just lose resume capability
-        # for this page.
         logger.warning(f"Failed to cache OCR for {job_id} page {page_num}: {e}")
 
 
@@ -100,12 +94,11 @@ def _count_cached_pages(r, job_id: str, total: int) -> int:
 def _clear_ocr_cache(r, job_id: str) -> int:
     """
     Delete all `ocr:{job_id}:*` keys. Returns count deleted.
-    Used when a job succeeds (no longer needs resume data) or is deleted.
+    Used when a job succeeds or is deleted.
     """
     deleted = 0
     pattern = f"ocr:{job_id}:*"
     try:
-        # scan_iter is supported by both real redis-py and fakeredis
         for key in r.scan_iter(match=pattern, count=200):
             try:
                 r.delete(key)
@@ -132,14 +125,23 @@ def run_pipeline(r, job: dict, engine) -> None:
 
     output_formats = job.get("output_formats", ["epub"]) or ["epub"]
 
-    def check_stop() -> bool:
+    def check_stop_or_pause() -> str | None:
+        """
+        Check if user requested stop or pause.
+        Returns: "stop", "pause", or None
+        """
         raw = r.get(f"job:{job_id}")
         if raw:
             cur = json.loads(raw)
             if cur.get("stop_requested") or cur.get("status") == "stopped":
-                update_job(r, job_id, status="stopped", message="Stopped by user.", stop_requested=False)
-                return True
-        return False
+                update_job(r, job_id, status="stopped", message="Stopped by user.", 
+                          stop_requested=False, pause_requested=False)
+                return "stop"
+            if cur.get("pause_requested"):
+                update_job(r, job_id, status="paused", message="Paused by user.", 
+                          pause_requested=False)
+                return "pause"
+        return None
 
     try:
         update_job(r, job_id, status="processing", message="Ingesting PDF…", progress=2)
@@ -159,7 +161,12 @@ def run_pipeline(r, job: dict, engine) -> None:
             )
 
         for page_num in range(total_pages):
-            if check_stop():
+            action = check_stop_or_pause()
+            if action == "stop":
+                ingested.doc.close()
+                return
+            elif action == "pause":
+                logger.info(f"Job {job_id}: paused at page {page_num}/{total_pages}")
                 ingested.doc.close()
                 return
 
@@ -182,9 +189,7 @@ def run_pipeline(r, job: dict, engine) -> None:
             text_blocks   = engine.recognize(page_img, direction)
             layout_blocks = engine.get_layout(page_img)
 
-            # Persist the freshly computed page result (no-op if it came
-            # from cache — the export still returns the same data, and
-            # rewriting it is harmless).
+            # Persist the freshly computed page result
             if cached is None:
                 page_result = engine.export_last_page_result()
                 if page_result is not None:
@@ -247,8 +252,7 @@ def run_pipeline(r, job: dict, engine) -> None:
 
         # ── Determine final status ───────────────────────────────────────────
         if output_paths:
-            # At least one format succeeded — we no longer need the OCR
-            # cache for this job. Free Redis memory.
+            # At least one format succeeded — clear OCR cache
             removed = _clear_ocr_cache(r, job_id)
             if removed:
                 logger.info(f"Job {job_id}: cleared {removed} cached OCR pages")
@@ -264,8 +268,7 @@ def run_pipeline(r, job: dict, engine) -> None:
                            progress=100, **output_paths)
                 logger.info(f"Job {job_id} done: {list(output_paths.keys())}")
         else:
-            # All formats failed — KEEP the OCR cache so a retry doesn't
-            # re-spend API quota on pages that already OCR'd cleanly.
+            # All formats failed — KEEP the OCR cache
             error_summary = "; ".join(format_errors) if format_errors else "No output produced"
             update_job(r, job_id, status="failed",
                        message="Conversion failed.", error=error_summary)
@@ -273,8 +276,7 @@ def run_pipeline(r, job: dict, engine) -> None:
 
     except Exception as exc:
         logger.error(f"Job {job_id} failed: {exc}\n{traceback.format_exc()}")
-        # KEEP the OCR cache on unexpected error — retry can resume from
-        # the last successful page rather than starting over.
+        # KEEP the OCR cache on unexpected error
         update_job(r, job_id, status="failed", message="Conversion failed.", error=str(exc))
     finally:
         if CLEANUP and tmp_dir.exists():
