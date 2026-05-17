@@ -197,6 +197,7 @@ async def upload_pdf(
         "clean_pdf_path":  "",
         "error":           "",
         "stop_requested":  False,
+        "pause_requested": False,
         "page_count":      page_count,
         "output_formats":  formats,
     }
@@ -285,7 +286,7 @@ async def download_clean_pdf(job_id: str, user: str = Depends(require_auth)):
     return FileResponse(str(p), media_type="application/pdf",
                         filename=f"{Path(job['filename']).stem}_clean.pdf")
 
-# ── Start / Stop / Delete ────────────────────────────────────────────────────
+# ── Start / Pause / Stop / Delete ────────────────────────────────────────────
 @app.post("/api/start/{job_id}")
 async def start_job(job_id: str, request: Request, user: str = Depends(require_auth)):
     r = await get_redis()
@@ -294,7 +295,7 @@ async def start_job(job_id: str, request: Request, user: str = Depends(require_a
         await r.aclose()
         raise HTTPException(404, "Job not found.")
     job = json.loads(raw)
-    if job["status"] not in ("pending", "stopped", "failed"):
+    if job["status"] not in ("pending", "stopped", "failed", "paused"):
         await r.aclose()
         raise HTTPException(400, f"Cannot start from status: {job['status']}.")
 
@@ -319,7 +320,8 @@ async def start_job(job_id: str, request: Request, user: str = Depends(require_a
     job["textlayer_path"] = ""
     job["clean_pdf_path"] = ""
 
-    job.update(status="queued", message="Queued", progress=0, error="", stop_requested=False)
+    job.update(status="queued", message="Queued", progress=0, error="", 
+               stop_requested=False, pause_requested=False)
     await r.set(f"job:{job_id}", json.dumps(job))
     await r.lpush("job_queue", job_id)
     await r.aclose()
@@ -328,6 +330,32 @@ async def start_job(job_id: str, request: Request, user: str = Depends(require_a
         "status": "queued",
         "output_formats": job["output_formats"],
     })
+
+@app.post("/api/pause/{job_id}")
+async def pause_job(job_id: str, user: str = Depends(require_auth)):
+    r = await get_redis()
+    raw = await r.get(f"job:{job_id}")
+    if not raw:
+        await r.aclose()
+        raise HTTPException(404, "Job not found.")
+    job = json.loads(raw)
+    s = job["status"]
+    
+    if s in ("done", "failed", "stopped", "paused"):
+        await r.aclose()
+        raise HTTPException(400, f"Cannot pause from status: {s}.")
+    
+    if s == "pending":
+        job.update(status="paused", message="Paused by user.")
+    elif s == "queued":
+        await r.lrem("job_queue", 0, job_id)
+        job.update(status="paused", message="Paused by user.")
+    elif s == "processing":
+        job.update(pause_requested=True, message="Pausing…")
+    
+    await r.set(f"job:{job_id}", json.dumps(job))
+    await r.aclose()
+    return JSONResponse({"job_id": job_id, "status": job["status"]})
 
 @app.post("/api/stop/{job_id}")
 async def stop_job(job_id: str, user: str = Depends(require_auth)):
@@ -346,7 +374,7 @@ async def stop_job(job_id: str, user: str = Depends(require_auth)):
     elif s == "queued":
         await r.lrem("job_queue", 0, job_id)
         job.update(status="stopped", message="Stopped by user.")
-    elif s == "processing":
+    elif s in ("processing", "paused"):
         job.update(stop_requested=True, message="Stopping…")
     await r.set(f"job:{job_id}", json.dumps(job))
     await r.aclose()
