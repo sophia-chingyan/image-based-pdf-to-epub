@@ -70,6 +70,27 @@ oauth.register(
 async def get_redis():
     return await get_async_redis()
 
+
+# ── OCR cache cleanup helper (async) ─────────────────────────────────────────
+async def _clear_ocr_cache(r, job_id: str) -> int:
+    """
+    Delete all `ocr:{job_id}:*` keys (per-page OCR results saved by the
+    worker for resume support). Returns count deleted. Safe on errors.
+    """
+    deleted = 0
+    pattern = f"ocr:{job_id}:*"
+    try:
+        async for key in r.scan_iter(match=pattern, count=200):
+            try:
+                await r.delete(key)
+                deleted += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return deleted
+
+
 async def create_session(request: Request, email: str) -> None:
     session_token = str(uuid.uuid4())
     r = await get_redis()
@@ -290,7 +311,10 @@ async def start_job(job_id: str, request: Request, user: str = Depends(require_a
         if new_fmts:
             job["output_formats"] = new_fmts
 
-    # Clear stale output paths from any previous run
+    # Clear stale output paths from any previous run.
+    # NOTE: we deliberately do NOT clear the OCR page cache here — when
+    # a job is being retried after stop/failure, the cached pages are
+    # exactly what lets the resume work without spending API quota again.
     job["epub_path"] = ""
     job["textlayer_path"] = ""
     job["clean_pdf_path"] = ""
@@ -348,6 +372,8 @@ async def delete_job(job_id: str, user: str = Depends(require_auth)):
                 p.unlink(missing_ok=True)
         except OSError:
             pass
+    # Drop any cached per-page OCR results for this job too.
+    await _clear_ocr_cache(r, job_id)
     await r.delete(f"job:{job_id}")
     await r.lrem("job_history", 0, job_id)
     await r.aclose()
