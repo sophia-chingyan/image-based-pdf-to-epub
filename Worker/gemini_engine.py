@@ -17,6 +17,13 @@ Configurable in config.yaml under ocr.model_name.
 Rate-limiting:
 The engine self-throttles to stay within the configured RPM. Free-tier users
 should leave rpm_limit at 10 for gemini-2.5-flash.
+
+Persistent per-page caching:
+The worker can pre-populate the engine's in-memory cache with a previously
+saved page result (e.g. loaded from Redis) via `prime_page_cache_from_dict`,
+and read back the just-computed result via `export_last_page_result`. This
+lets a job resume from where it left off without re-spending API quota on
+pages that were already OCR'd successfully.
 """
 
 from __future__ import annotations
@@ -26,7 +33,7 @@ import json
 import time
 import logging
 import threading
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from collections import deque
 
 from ocr_engine import (
@@ -192,6 +199,14 @@ class GeminiOCREngine(OCREngine):
         # object, cleared after each page in the worker pipeline.
         self._page_cache: Dict[int, dict] = {}
 
+        # The most recently produced (or primed) page result, so the worker
+        # can read it back and persist it to Redis without recomputing.
+        self._last_page_result: Optional[dict] = None
+
+        # Pre-primed result for the *next* call to _analyse_page. Used when
+        # the worker has loaded a cached result from Redis for this page.
+        self._primed_next_result: Optional[dict] = None
+
     def load(self) -> None:
         if not self.api_key:
             raise RuntimeError(
@@ -271,8 +286,51 @@ class GeminiOCREngine(OCREngine):
         return self._loaded
 
     def reset_page_cache(self):
-        """Called by the worker between pages to free memory."""
+        """
+        Called by the worker between pages to free memory. NB: we do NOT
+        reset _last_page_result here — the worker reads it back via
+        export_last_page_result() *after* finishing the three interface
+        calls for the page. It's naturally overwritten on the next
+        page's _analyse_page().
+        """
         self._page_cache.clear()
+
+    # ── Persistent cache hooks (used by the worker) ─────────────────────────
+
+    def prime_page_cache_from_dict(self, cached_result: dict) -> None:
+        """
+        Pre-populate the engine so the next _analyse_page() call returns
+        `cached_result` instead of making an API call.
+
+        The worker uses this when it has a previously saved OCR result
+        for this page loaded from Redis.
+        """
+        if not isinstance(cached_result, dict):
+            return
+        # Re-normalise defensively in case the cached payload is malformed.
+        self._primed_next_result = self._normalise_result(cached_result)
+
+    def export_last_page_result(self) -> Optional[dict]:
+        """
+        Return the most recent page result as a plain dict suitable for
+        JSON serialisation. The worker calls this after processing a page
+        and writes the returned dict to Redis under `ocr:{job_id}:{page}`.
+        """
+        if self._last_page_result is None:
+            return None
+        # Return a fresh copy to decouple from internal mutation.
+        return {
+            "direction": _coerce_str(self._last_page_result.get("direction", "horizontal")),
+            "blocks": [
+                {
+                    "text":  _coerce_str(b.get("text")),
+                    "type":  _coerce_str(b.get("type")),
+                    "bbox":  list(_coerce_bbox(b.get("bbox"))),
+                }
+                for b in self._last_page_result.get("blocks", [])
+                if isinstance(b, dict)
+            ],
+        }
 
     # ── Internal: single API call per page, cached ──────────────────────────
     def _analyse_page(self, page_image) -> dict:
@@ -282,17 +340,32 @@ class GeminiOCREngine(OCREngine):
 
         Reusing the cached result across detect_direction / recognize /
         get_layout means each PDF page costs exactly ONE API call.
+
+        If the worker has previously primed a cached result via
+        prime_page_cache_from_dict(), that result is used and no API
+        call is made.
         """
         self._assert_loaded()
+
         cache_key = id(page_image)
         if cache_key in self._page_cache:
-            return self._page_cache[cache_key]
+            self._last_page_result = self._page_cache[cache_key]
+            return self._last_page_result
+
+        # Worker pre-primed a Redis-cached result for this page?
+        if self._primed_next_result is not None:
+            result = self._primed_next_result
+            self._primed_next_result = None
+            self._page_cache[cache_key] = result
+            self._last_page_result = result
+            return result
 
         # Convert BGR ndarray → JPEG bytes
         jpeg_bytes = self._image_to_jpeg(page_image)
 
         result = self._call_gemini_with_retry(jpeg_bytes)
         self._page_cache[cache_key] = result
+        self._last_page_result = result
         return result
 
     def _image_to_jpeg(self, page_image) -> bytes:
@@ -400,6 +473,10 @@ class GeminiOCREngine(OCREngine):
                 logger.warning("Gemini response did not contain JSON.")
                 return {"direction": "horizontal", "blocks": []}
 
+        return self._normalise_result(data)
+
+    def _normalise_result(self, data: Any) -> dict:
+        """Defensively normalise a result dict (from API or from cache)."""
         if not isinstance(data, dict):
             return {"direction": "horizontal", "blocks": []}
 
@@ -407,7 +484,6 @@ class GeminiOCREngine(OCREngine):
         if not isinstance(blocks, list):
             blocks = []
 
-        # Normalise each block defensively
         clean_blocks = []
         for b in blocks:
             if not isinstance(b, dict):

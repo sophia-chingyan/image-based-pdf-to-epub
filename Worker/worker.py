@@ -1,5 +1,22 @@
 """
 Worker — supports three output formats: epub, textlayer, clean.
+
+Per-page OCR caching
+====================
+After each page is OCR'd successfully, the page result is saved to Redis
+under `ocr:{job_id}:{page_num}`. If the job is later stopped, fails (e.g.
+quota exhaustion), or the container restarts, the next run skips pages
+that already have a cached result — no API call, no quota cost.
+
+Cache lifecycle:
+- Written: after each successful page OCR
+- Read:    before each page, to decide whether to call the API
+- Deleted: when the job reaches status=done (full success), or when the
+           user explicitly deletes the job (via the API)
+- Kept:    when the job is failed/stopped, so retry can resume
+
+The cache key prefix is `ocr:{job_id}:` so all keys for one job can be
+cleared with a SCAN+DEL pass (see `_clear_ocr_cache`).
 """
 from __future__ import annotations
 import os, sys, json, time, shutil, logging, traceback, gc
@@ -29,6 +46,8 @@ WRITING_MODE = CFG["epub"]["default_writing_mode"]
 CLEANUP      = CFG["pipeline"].get("tmp_cleanup_on_complete", True)
 
 
+# ── Job state helpers ────────────────────────────────────────────────────────
+
 def update_job(r, job_id: str, **kw):
     raw = r.get(f"job:{job_id}")
     if not raw:
@@ -37,6 +56,68 @@ def update_job(r, job_id: str, **kw):
     job.update(kw)
     r.set(f"job:{job_id}", json.dumps(job))
 
+
+# ── OCR page cache helpers ──────────────────────────────────────────────────
+
+def _ocr_cache_key(job_id: str, page_num: int) -> str:
+    return f"ocr:{job_id}:{page_num}"
+
+
+def _save_ocr_page(r, job_id: str, page_num: int, page_result: dict) -> None:
+    """Persist a single page's OCR result to Redis."""
+    try:
+        r.set(_ocr_cache_key(job_id, page_num), json.dumps(page_result))
+    except Exception as e:
+        # Cache write failure is non-fatal — we just lose resume capability
+        # for this page.
+        logger.warning(f"Failed to cache OCR for {job_id} page {page_num}: {e}")
+
+
+def _load_ocr_page(r, job_id: str, page_num: int) -> dict | None:
+    """Load a previously cached page result, or None if absent/corrupt."""
+    try:
+        raw = r.get(_ocr_cache_key(job_id, page_num))
+        if not raw:
+            return None
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return None
+        return data
+    except Exception as e:
+        logger.warning(f"Failed to load cached OCR for {job_id} page {page_num}: {e}")
+        return None
+
+
+def _count_cached_pages(r, job_id: str, total: int) -> int:
+    """Count how many of pages [0, total) have a cached result."""
+    n = 0
+    for i in range(total):
+        if r.exists(_ocr_cache_key(job_id, i)):
+            n += 1
+    return n
+
+
+def _clear_ocr_cache(r, job_id: str) -> int:
+    """
+    Delete all `ocr:{job_id}:*` keys. Returns count deleted.
+    Used when a job succeeds (no longer needs resume data) or is deleted.
+    """
+    deleted = 0
+    pattern = f"ocr:{job_id}:*"
+    try:
+        # scan_iter is supported by both real redis-py and fakeredis
+        for key in r.scan_iter(match=pattern, count=200):
+            try:
+                r.delete(key)
+                deleted += 1
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"Failed to clear OCR cache for {job_id}: {e}")
+    return deleted
+
+
+# ── Pipeline ────────────────────────────────────────────────────────────────
 
 def run_pipeline(r, job: dict, engine) -> None:
     from pdf_ingestion import ingest_pdf, rasterize_page
@@ -67,18 +148,47 @@ def run_pipeline(r, job: dict, engine) -> None:
         structured_pages = []
         image_id_counter = [0]
 
+        # ── Report any pre-existing cache so the user sees the resume ──────
+        cached_n = _count_cached_pages(r, job_id, total_pages)
+        if cached_n > 0:
+            logger.info(f"Job {job_id}: resuming with {cached_n}/{total_pages} pages cached")
+            update_job(
+                r, job_id,
+                message=f"Resuming · {cached_n}/{total_pages} pages cached",
+                progress=2,
+            )
+
         for page_num in range(total_pages):
             if check_stop():
                 ingested.doc.close()
                 return
 
             progress = int(5 + (page_num / total_pages) * 80)
-            update_job(r, job_id, message=f"OCR page {page_num+1} / {total_pages}…", progress=progress)
+
+            # Try cache first — saves an API call and quota for resumes.
+            cached = _load_ocr_page(r, job_id, page_num)
+            if cached is not None:
+                update_job(r, job_id,
+                           message=f"Page {page_num+1} / {total_pages} (cached)…",
+                           progress=progress)
+                engine.prime_page_cache_from_dict(cached)
+            else:
+                update_job(r, job_id,
+                           message=f"OCR page {page_num+1} / {total_pages}…",
+                           progress=progress)
 
             page_img = rasterize_page(ingested.doc, page_num, dpi=DPI)
             direction     = engine.detect_direction(page_img)
             text_blocks   = engine.recognize(page_img, direction)
             layout_blocks = engine.get_layout(page_img)
+
+            # Persist the freshly computed page result (no-op if it came
+            # from cache — the export still returns the same data, and
+            # rewriting it is harmless).
+            if cached is None:
+                page_result = engine.export_last_page_result()
+                if page_result is not None:
+                    _save_ocr_page(r, job_id, page_num, page_result)
 
             page_info = ingested.pages[page_num]
             sp = analyse_page(page_number=page_num, text_blocks=text_blocks,
@@ -137,7 +247,12 @@ def run_pipeline(r, job: dict, engine) -> None:
 
         # ── Determine final status ───────────────────────────────────────────
         if output_paths:
-            # At least one format succeeded
+            # At least one format succeeded — we no longer need the OCR
+            # cache for this job. Free Redis memory.
+            removed = _clear_ocr_cache(r, job_id)
+            if removed:
+                logger.info(f"Job {job_id}: cleared {removed} cached OCR pages")
+
             if format_errors:
                 error_summary = "; ".join(format_errors)
                 update_job(r, job_id, status="done",
@@ -149,7 +264,8 @@ def run_pipeline(r, job: dict, engine) -> None:
                            progress=100, **output_paths)
                 logger.info(f"Job {job_id} done: {list(output_paths.keys())}")
         else:
-            # All formats failed
+            # All formats failed — KEEP the OCR cache so a retry doesn't
+            # re-spend API quota on pages that already OCR'd cleanly.
             error_summary = "; ".join(format_errors) if format_errors else "No output produced"
             update_job(r, job_id, status="failed",
                        message="Conversion failed.", error=error_summary)
@@ -157,6 +273,8 @@ def run_pipeline(r, job: dict, engine) -> None:
 
     except Exception as exc:
         logger.error(f"Job {job_id} failed: {exc}\n{traceback.format_exc()}")
+        # KEEP the OCR cache on unexpected error — retry can resume from
+        # the last successful page rather than starting over.
         update_job(r, job_id, status="failed", message="Conversion failed.", error=str(exc))
     finally:
         if CLEANUP and tmp_dir.exists():
